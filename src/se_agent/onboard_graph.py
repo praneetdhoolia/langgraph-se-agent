@@ -4,13 +4,16 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.types import Send
 from langgraph.graph import (
     StateGraph,
-    START
+    START,
+    END
 )
 from se_agent.state import (
     FilepathState,
     FileSummary,
     OnboardState,
     Package,
+    PackageState,
+    PackageSummary,
 )
 from se_agent.config import Configuration
 from se_agent.utils import (
@@ -19,6 +22,7 @@ from se_agent.utils import (
     get_file_content,
     group_by_top_level_packages,
     load_chat_model,
+    shift_markdown_headings,
     split_github_url,
 )
 
@@ -182,8 +186,70 @@ async def save_file_summaries(state: OnboardState, *, config: RunnableConfig):
     conn.close()
 
     return {
+        "repo_id": repo_id,
         "package_name_index": package_name_index
     }
+
+
+def continue_to_save_package_summaries(state: OnboardState, *, config: RunnableConfig):
+    """ Map out to generate summaries for each package """
+
+    def get_file_summaries(filepaths):
+        return [fsum for fsum in state.file_summaries if fsum.filepath in filepaths]
+
+    return [
+        Send(
+            "generate_package_summary",
+            PackageState(package_name=package_name, file_summaries=get_file_summaries(package.filepaths))
+        ) 
+        for package_name, package in state.package_name_index.items()
+    ]
+
+
+async def generate_package_summary(state: PackageState, *, config: RunnableConfig):
+    configuration = Configuration.from_runnable_config(config)
+
+    package_name = state.package_name
+    
+    file_summaries = []
+    for fsum in state.file_summaries:
+        file_summaries.append(f"# {fsum.filepath}\n{shift_markdown_headings(fsum.summary, increment=1)}")
+
+    # Generate the package summary
+    template = ChatPromptTemplate.from_messages([
+        ("human", configuration.package_summary_system_prompt),
+    ])
+    model = load_chat_model(configuration.code_summary_model)
+    context = await template.ainvoke({
+        "package_name": package_name,
+        "file_summaries": "\n\n".join(file_summaries)
+    }, config)
+    response = await model.ainvoke(context, config)
+    return {"package_summaries": [PackageSummary(package_name=package_name, summary=extract_code_block_content(response.content))]}
+
+
+async def save_package_summaries(state: OnboardState, *, config: RunnableConfig):
+    """ Saves package_summaries to a SQLite database (store.db). """
+
+    configuration = Configuration.from_runnable_config(config)
+
+    # Connect to (or create) the store.db file
+    # If it doesn't exist, sqlite3.connect(...) will create it automatically.
+    conn = sqlite3.connect("store.db")
+    conn.execute("PRAGMA foreign_keys = ON;")
+
+    # let's upsert packages
+    for psum in state.package_summaries:
+        package_id = state.package_name_index[psum.package_name].package_id
+        conn.execute("""UPDATE packages
+            SET summary = ?
+            WHERE repo_id = ? AND package_id = ?
+        """, (psum.summary, state.repo_id, package_id))
+
+    conn.commit()
+    conn.close()
+
+
 
 # Initialize the state with default values
 builder = StateGraph(state_schema=OnboardState, config_schema=Configuration)
@@ -191,10 +257,15 @@ builder = StateGraph(state_schema=OnboardState, config_schema=Configuration)
 builder.add_node(get_filepaths)
 builder.add_node(generate_file_summary)
 builder.add_node(save_file_summaries)
+builder.add_node(generate_package_summary)
+builder.add_node(save_package_summaries)
 
 builder.add_edge(START, "get_filepaths")
 builder.add_conditional_edges("get_filepaths", continue_to_save_file_summaries, ["generate_file_summary"])
 builder.add_edge("generate_file_summary", "save_file_summaries")
+builder.add_conditional_edges("save_file_summaries", continue_to_save_package_summaries, ["generate_package_summary"])
+builder.add_edge("generate_package_summary", "save_package_summaries")
+builder.add_edge("save_package_summaries", END)
 
 graph = builder.compile()
 

@@ -109,3 +109,25 @@ def group_by_top_level_packages(filepaths: list[str], src_folder: str) -> dict[s
         pkg_dict[package].append(file_path)
 
     return pkg_dict
+
+
+def shift_markdown_headings(content: str, increment: int = 1) -> str:
+    """
+    Shifts all Markdown heading levels in 'content' by 'increment'.
+    For example, '# Title' -> '## Title' if increment=1, and so on.
+    """
+    def replacer(match):
+        hashes = match.group(1)        # The string of '#' characters
+        heading_text = match.group(2)  # The remainder of the line after the '#'
+        
+        # Increase the number of '#' by 'increment'
+        new_hashes = '#' * (len(hashes) + increment)
+        return f"{new_hashes} {heading_text}"
+
+    # Regex explanation:
+    #   ^(#+)\s+(.*)$
+    #   ^(#+)       -> one or more '#' at the start of the line (capturing group 1)
+    #   \s+         -> one or more whitespace characters
+    #   (.*)$       -> the rest of the line (capturing group 2)
+    # The MULTILINE flag (^ matches start of line rather than start of the entire string)
+    return re.sub(r'^(#+)\s+(.*)$', replacer, content, flags=re.MULTILINE)

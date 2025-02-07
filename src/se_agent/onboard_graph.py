@@ -42,7 +42,23 @@ async def get_filepaths(_: OnboardState, *, config: RunnableConfig):
         branch=configuration.gh_repository_branch
     )
 
-    return {"filepaths": filepaths}
+    file_extensions_images_and_media = [   
+        # Image and Media files
+        "png", "jpg", "jpeg", "gif", "bmp", "tiff", "svg", "ico", "webp",
+        
+        # Audio files
+        "mp3", "wav", "ogg", "flac", "aac", "m4a",
+        
+        # Video files
+        "mp4", "mkv", "avi", "mov", "wmv", "flv", "webm",
+    ]
+
+    return {"filepaths": [
+            filepath
+            for filepath in filepaths
+            if filepath.split(".")[-1] not in file_extensions_images_and_media
+        ]
+    }
 
 
 def continue_to_save_file_summaries(state: OnboardState, *, config: RunnableConfig):

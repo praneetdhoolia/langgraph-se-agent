@@ -139,6 +139,14 @@ class FileSuggestions(BaseModel):
 file_suggestions_format_instuctions = PydanticOutputParser(pydantic_object=FileSuggestions).get_format_instructions()
 
 @dataclass(kw_only=True)
+class FileContent:
+    filepath: str
+    """Github file path to be processed."""
+    
+    content: str
+    """Content of the file."""
+
+@dataclass(kw_only=True)
 class State(InputState):
     repo_id: int = field(default=0)
     """Repository ID. Defaults to 0 if not provided."""
@@ -151,3 +159,6 @@ class State(InputState):
 
     file_suggestions: FileSuggestions = field(default_factory=FileSuggestions)
     """Suggested files state."""
+
+    file_contents: Annotated[list[FileContent], operator.add] = field(default_factory=list)
+    """List of file contents."""

@@ -1,11 +1,15 @@
 import sqlite3
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
+from langgraph.types import Send
 from langgraph.graph import (
     StateGraph,
-    START
+    START,
+    END
 )
 from se_agent.state import (
+    FileContent,
+    FilepathState,
     Package,
     PackageSuggestions,
     package_suggestions_format_instuctions,
@@ -15,8 +19,10 @@ from se_agent.state import (
 )
 from se_agent.config import Configuration
 from se_agent.utils import (
+    get_file_content,
     load_chat_model,
-    shift_markdown_headings
+    shift_markdown_headings,
+    split_github_url
 )
 
 
@@ -112,15 +118,51 @@ async def localize_files(state: State, *, config: RunnableConfig):
         "file_suggestions": file_suggestions
     }
 
+def continue_to_suggest_solution(state: State, *, config: RunnableConfig):
+    """ Map out to generate summaries for each package """
+
+    return [
+        Send(
+            "fetch_file_content",
+            FilepathState(filepath=file_suggestion.filepath),
+        ) 
+        for file_suggestion in state.file_suggestions.files
+    ]
+
+async def fetch_file_content(state: FilepathState, *, config: RunnableConfig):
+    configuration = Configuration.from_runnable_config(config)
+    base_url, owner, repo = split_github_url(configuration.gh_repository_url)
+    api_url = "https://api.github.com" if base_url == "https://github.com" else f"{base_url}/api/v3"
+    headers = {"Authorization": f"Bearer {configuration.gh_token}"}
+
+    file_content = get_file_content(
+        api_url,
+        headers,
+        owner,
+        repo,
+        filepath=state.filepath,
+        branch=configuration.gh_repository_branch
+    )
+
+    return {"file_contents": [FileContent(filepath=state.filepath, content=file_content)]}
+
+async def suggest_solution(state: State, *, config: RunnableConfig):
+    pass
+
 
 # Initialize the state with default values
 builder = StateGraph(state_schema=State, config_schema=Configuration)
 
 builder.add_node(localize_packages)
 builder.add_node(localize_files)
+builder.add_node(fetch_file_content)
+builder.add_node(suggest_solution)
 
 builder.add_edge(START, "localize_packages")
 builder.add_edge("localize_packages", "localize_files")
+builder.add_conditional_edges("localize_files", continue_to_suggest_solution, ["fetch_file_content"])
+builder.add_edge("fetch_file_content", "suggest_solution")
+builder.add_edge("suggest_solution", END)
 
 graph = builder.compile()
 

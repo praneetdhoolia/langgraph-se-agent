@@ -1,0 +1,11 @@
+@api_server=https://api.github.com
+@owner=HeurisTech
+@repo=langgraph-mcp
+@path=src/langgraph_mcp/mcp_wrapper.py
+
+
+### get_file_contents
+GET {{api_server}}/repos/{{owner}}/{{repo}}/contents/{{path}} HTTP/1.1
+Authorization: Bearer {{GH_TOKEN}}
+Content-Type: application/json
+Accept: application/vnd.github.v3+json

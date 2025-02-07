@@ -1,0 +1,28 @@
+[project]
+name = "se-agent"
+version = "0.0.1"
+description = "LangGraphs of se-agent responsibilities"
+authors = [
+    { name = "Praneet Dhoolia", email = "praneet.dhoolia@gmail.com" },
+]
+license = { text = "MIT" }
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "langchain",
+    "langgraph",
+    "langchain-openai",
+    "python-dotenv>=1.0.1"
+]
+
+[project.optional-dependencies]
+dev = ["debugpy"]
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["se_agent"]
+[tool.setuptools.package-dir]
+"se_agent" = "src/se_agent"

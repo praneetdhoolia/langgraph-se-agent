@@ -1,0 +1,11 @@
+{
+    "name": "LangGraphs of se-agent responsibilities",
+    "version": "1.0.0",
+    "python_version": "3.12",
+    "dependencies": ["."],
+    "graphs": {
+        "onboard_graph": "./src/se_agent/onboard_graph.py:graph"
+    },
+    "env": ".env"
+}
+  

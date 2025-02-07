@@ -4,7 +4,8 @@
     "python_version": "3.12",
     "dependencies": ["."],
     "graphs": {
-        "onboard_graph": "./src/se_agent/onboard_graph.py:graph"
+        "onboard_graph": "./src/se_agent/onboard_graph.py:graph",
+        "assist_graph": "./src/se_agent/assist_graph.py:graph"
     },
     "env": ".env"
 }

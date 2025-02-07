@@ -30,6 +30,21 @@ class Configuration:
         },
     )
 
+    package_localization_system_prompt: str = field (
+        default=prompts.PACKAGE_LOCALIZATION_SYSTEM_PROMPT,
+        metadata={"description": "System prompt for package-level localization task."},
+    )
+
+    localization_model: Annotated[
+        str,
+        {"__template_metadata__": {"kind": "llm"}}
+    ] = field(
+        default="openai/gpt-4o",
+        metadata={
+            "description": "Language model to use for file / package level localization. Should be in the form: provider/model-name."
+        },
+    )
+
     gh_repository_url: str = field(
         default="https://github.com/praneetdhoolia/langgraph-se-agent",
         metadata={"description": "E.g., https://github.com/owner/repo"},

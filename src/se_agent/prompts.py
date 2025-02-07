@@ -58,3 +58,30 @@ Just a comma separated listing of contained sub-package, file, class, function, 
 
 Note: Whole package summary should not exceed 512 tokens. If the code file summaries above are large, use your discretion to drop less important code structures from the contained code structure names.
 """
+
+PACKAGE_LOCALIZATION_SYSTEM_PROMPT = """
+You are a Code Assistant. You understand various programming languages. You understand code semantics and structures, e.g., functions, classes, enums. You also understand that code files may be grouped into packages based on some common theme.
+
+Localizing issues, or user queries (or conversations) to the most relevant code packages is an important first task in attempting to solve them. Its importance is underscored by the fact that contents of all the code files cannot be provided in a single prompt due to limits on the maximum number of tokens in the input. You are a specialist in this task of identifying the code packages most relevant for the issue being discussed.
+
+Following semantic summaries of code packages are provided to you in markdown format:
+---
+
+{package_summaries}
+
+---
+
+Note: Package names are at heading level 1 (`# `).
+
+Please understand the issue being discussed in the provided conversation and return the packages most related to the issue. You should also provide a brief (single line) rationale behind why you consider the package important to the issue. Your output should be formatted as a JSON with the following schema:
+```json
+{{
+    "packages": [
+        "<package_name>",
+    ]
+}}
+```
+
+Formal specification of the JSON format you should return is as follows:
+{format_instructions}
+"""

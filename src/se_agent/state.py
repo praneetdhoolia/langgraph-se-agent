@@ -125,6 +125,19 @@ class PackageSuggestions(BaseModel):
 
 package_suggestions_format_instuctions = PydanticOutputParser(pydantic_object=PackageSuggestions).get_format_instructions()
 
+class FileSuggestion(BaseModel):
+    filepath: str
+    """Filepath of the file relevant to the issue or conversation."""
+
+    rationale: str
+    """Rationale / reasoning for considering this file relevant."""
+
+class FileSuggestions(BaseModel):
+    files: list[FileSuggestion] = Field(default_factory=list)
+    """List of files most relevant to the issue or conversation."""
+
+file_suggestions_format_instuctions = PydanticOutputParser(pydantic_object=FileSuggestions).get_format_instructions()
+
 @dataclass(kw_only=True)
 class State(InputState):
     repo_id: int = field(default=0)
@@ -135,3 +148,6 @@ class State(InputState):
 
     package_name_index: dict[str, Package] = field(default_factory=dict)
     """Dict of {pkg_name: Package} for quick lookup."""
+
+    file_suggestions: FileSuggestions = field(default_factory=FileSuggestions)
+    """Suggested files state."""

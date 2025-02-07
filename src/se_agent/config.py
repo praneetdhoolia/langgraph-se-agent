@@ -35,6 +35,11 @@ class Configuration:
         metadata={"description": "System prompt for package-level localization task."},
     )
 
+    file_localization_system_prompt: str = field (
+        default=prompts.FILE_LOCALIZATION_SYSTEM_PROMPT,
+        metadata={"description": "System prompt for file-level localization task."},
+    )
+
     localization_model: Annotated[
         str,
         {"__template_metadata__": {"kind": "llm"}}

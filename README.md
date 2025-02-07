@@ -18,7 +18,7 @@ Emulating the behavior of a human agent, we'll implement workflows to:
 
 1.  Create and activate a virtual environment
     ```bash
-    git clone https://github.com/HeurisTech/langgraph-se-agent.git
+    git clone https://github.com/praneetdhoolia/langgraph-se-agent.git
     cd langgraph-se-agent
     python3 -m venv .venv
     source .venv/bin/activate

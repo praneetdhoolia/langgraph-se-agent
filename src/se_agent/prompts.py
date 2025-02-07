@@ -26,3 +26,35 @@ List of classes, functions, and other structures in the file with a brief semant
 ```
 
 """
+
+PACKAGE_SUMMARY_SYSTEM_PROMPT = """
+Your are a Code Assistant. You understand various programming languages. You understand code semantics and structures, e.g., functions, classes, enums. You also understand that code files may be grouped into packages based on some common theme. You can generate higher order summaries for code packages.
+
+Please understand the following summaries of code files in a package, and generate a brief semantic summary at the level of the package.
+
+Package Name: {package_name}
+
+
+Summaries of the code files in the package:
+---
+
+{file_summaries}
+
+---
+
+
+
+Generated document should follow this structure:
+```markdown
+# <Package Name>
+
+## Semantic Summary
+A very crisp description of the full package semantics. This should not exceed 150 tokens.
+
+## Contained code structure names
+Just a comma separated listing of contained sub-package, file, class, function, enum, or structure names. E.g.,
+`<package>`, `<sub_package>`, `<file_name>`, `<class-name>`, `<function_name>`, `<enum-name>`, ...
+```
+
+Note: Whole package summary should not exceed 512 tokens. If the code file summaries above are large, use your discretion to drop less important code structures from the contained code structure names.
+"""

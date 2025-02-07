@@ -18,6 +18,11 @@ class Configuration:
         metadata={"description": "System prompt for file-level semantic summary generation task."},
     )
 
+    package_summary_system_prompt: str = field (
+        default=prompts.PACKAGE_SUMMARY_SYSTEM_PROMPT,
+        metadata={"description": "System prompt for package-level semantic summary generation task."},
+    )
+
     code_summary_model: Annotated[str, {"__template_metadata__": {"kind": "llm"}}] = field(
         default="openai/gpt-4o",
         metadata={
@@ -26,7 +31,7 @@ class Configuration:
     )
 
     gh_repository_url: str = field(
-        default="https://github.com/HeurisTech/langgraph-se-agent",
+        default="https://github.com/praneetdhoolia/langgraph-se-agent",
         metadata={"description": "E.g., https://github.com/owner/repo"},
     )
 

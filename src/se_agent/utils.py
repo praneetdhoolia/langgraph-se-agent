@@ -1,4 +1,5 @@
 import base64
+import os
 import re
 import requests
 from urllib.parse import urlparse
@@ -82,3 +83,29 @@ def extract_code_block_content(input_string: str) -> str:
         input_string = match.group(1)
 
     return input_string
+
+
+def group_by_top_level_packages(filepaths: list[str], src_folder: str) -> dict[str, list[str]]:
+    """Groups filepaths by their top-level package.
+
+    Args:
+        filepaths (list[str]): List of filepaths.
+
+    Returns:
+        dict[str, list[str]]: A dictionary mapping package names to their respective filepaths.
+    """
+    pkg_dict = {}
+    for file_path in filepaths:
+        rel_path = os.path.relpath(file_path, src_folder)
+        
+        if os.sep in rel_path:
+            package = rel_path.split(os.sep)[0]
+        else:
+            package = "base"
+
+        if package not in pkg_dict:
+            pkg_dict[package] = []
+
+        pkg_dict[package].append(file_path)
+
+    return pkg_dict

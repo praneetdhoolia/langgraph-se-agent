@@ -27,3 +27,18 @@ class OnboardState:
 class FilepathState:
     filepath: str
     """Github file path to be processed."""
+
+
+@dataclass(kw_only=True)
+class Package:
+    package_id: int
+    """Storage ID of the package."""
+
+    name: str
+    """Name of the package."""
+
+    filepaths: list[str] = field(default_factory=list)
+    """List of filepaths. Defaults to an empty list."""
+
+    summary: str | None = field(default=None)
+    """Summary of the package (optional)."""

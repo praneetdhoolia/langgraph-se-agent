@@ -1,3 +1,4 @@
+import sqlite3
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langgraph.types import Send
@@ -8,13 +9,15 @@ from langgraph.graph import (
 from se_agent.state import (
     FilepathState,
     FileSummary,
-    OnboardState
+    OnboardState,
+    Package,
 )
 from se_agent.config import Configuration
 from se_agent.utils import (
     extract_code_block_content,
     get_all_files,
     get_file_content,
+    group_by_top_level_packages,
     load_chat_model,
     split_github_url,
 )
@@ -82,8 +85,105 @@ async def generate_file_summary(state: FilepathState, *, config: RunnableConfig)
 
 
 async def save_file_summaries(state: OnboardState, *, config: RunnableConfig):
-    pass
+    """
+    Saves file_summaries to a SQLite database (store.db).
+    Also creates the database schema if it's not present.
+    """
 
+    configuration = Configuration.from_runnable_config(config)
+    conn = sqlite3.connect("store.db")
+    conn.execute("PRAGMA foreign_keys = ON;")
+
+    # Create tables if they do not exist ---
+    conn.execute("""CREATE TABLE IF NOT EXISTS repositories (
+        repo_id     INTEGER PRIMARY KEY AUTOINCREMENT,
+        url         TEXT NOT NULL,
+        src_path    TEXT NOT NULL,
+        branch      TEXT NOT NULL
+    );
+    """)
+    conn.execute("""CREATE TABLE IF NOT EXISTS packages (
+        package_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+        repo_id      INTEGER NOT NULL,
+        package_name TEXT NOT NULL,
+        summary      TEXT,
+        FOREIGN KEY (repo_id) REFERENCES repositories(repo_id)
+    );
+    """)
+    conn.execute("""CREATE TABLE IF NOT EXISTS files (
+        file_id     INTEGER PRIMARY KEY AUTOINCREMENT,
+        repo_id     INTEGER NOT NULL,
+        package_id  INTEGER NOT NULL,
+        file_path   TEXT NOT NULL,
+        summary     TEXT,
+        FOREIGN KEY (repo_id) REFERENCES repositories(repo_id),
+        FOREIGN KEY (package_id) REFERENCES packages(package_id)
+    );
+    """)
+
+    # Insert (or fetch) the repository row ---
+    base_url, owner, repo = split_github_url(configuration.gh_repository_url)
+    cursor = conn.execute("""SELECT repo_id
+        FROM repositories
+        WHERE url = ? AND src_path = ? AND branch = ?
+    """, (configuration.gh_repository_url,
+          configuration.gh_src_folder,
+          configuration.gh_repository_branch))
+    row = cursor.fetchone()
+
+    if row is None:
+        # Insert a new repository
+        cursor = conn.execute("""INSERT INTO repositories (url, src_path, branch)
+            VALUES (?, ?, ?)
+        """, (configuration.gh_repository_url,
+              configuration.gh_src_folder,
+              configuration.gh_repository_branch))
+        repo_id = cursor.lastrowid
+    else:
+        repo_id = row[0]
+
+    # Group filepaths by top-level packages {top_level_package: [filepaths]}
+    pkg_dict = group_by_top_level_packages(state.filepaths, src_folder=configuration.gh_src_folder)
+
+    # We'll store {pkg_name: Package} in the state for quick lookup
+    package_name_index = {}
+
+    # For each package (key in pkg_dict), insert or fetch the package row
+    for pkg_name, file_list in pkg_dict.items():
+        # Check if package already exists
+        cursor = conn.execute("""SELECT package_id
+            FROM packages
+            WHERE repo_id = ? AND package_name = ?
+        """, (repo_id, pkg_name))
+        pkg_row = cursor.fetchone()
+
+        if pkg_row is None:
+            # Insert new row with summary = NULL
+            cursor = conn.execute("""INSERT INTO packages (repo_id, package_name, summary)
+                VALUES (?, ?, NULL)
+            """, (repo_id, pkg_name))
+            package_id = cursor.lastrowid
+        else:
+            package_id = pkg_row[0]
+
+        package_name_index[pkg_name] = Package(package_id=package_id, name=pkg_name, filepaths=file_list)
+
+        # Now insert the file summaries that belong to this package
+        # We have the file_list of paths that belong to pkg_name.
+        # We'll find matching summaries in state.file_summaries.
+        for fsum in state.file_summaries:
+            if fsum.filepath in file_list:
+                # Insert the file row using the known package_id
+                conn.execute("""INSERT INTO files (repo_id, package_id, file_path, summary)
+                    VALUES (?, ?, ?, ?)
+                """, (repo_id, package_id, fsum.filepath, fsum.summary))
+
+    conn.commit()
+    conn.close()
+
+    return {
+        "package_name_index": package_name_index
+    }
 
 # Initialize the state with default values
 builder = StateGraph(state_schema=OnboardState, config_schema=Configuration)

@@ -1,7 +1,7 @@
 @api_server=https://api.github.com
-@owner=HeurisTech
-@repo=langgraph-mcp
-@path=src/langgraph_mcp/mcp_wrapper.py
+@owner=praneetdhoolia
+@repo=langgraph-se-agent
+@path=src/se_agent
 
 
 ### get_file_contents

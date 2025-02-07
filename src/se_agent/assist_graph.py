@@ -147,7 +147,32 @@ async def fetch_file_content(state: FilepathState, *, config: RunnableConfig):
     return {"file_contents": [FileContent(filepath=state.filepath, content=file_content)]}
 
 async def suggest_solution(state: State, *, config: RunnableConfig):
-    pass
+    configuration = Configuration.from_runnable_config(config)
+
+    code_files = []
+    for file_suggestion in state.file_suggestions.files:
+        filepath = file_suggestion.filepath
+        rationale = file_suggestion.rationale
+        extn = file_suggestion.filepath.split(".")[-1]
+        content = next((
+            file_content.content
+            for file_content in state.file_contents
+            if file_content.filepath == file_suggestion.filepath
+        ), None)
+        code_files.append(f"filepath: {filepath}\nrationale: {rationale}\n```{extn}\n{content}\n```")
+
+    template = ChatPromptTemplate.from_messages([
+        ("system", configuration.code_suggestions_system_prompt),
+        ("placeholder", "{messages}"),
+    ])
+    model = load_chat_model(configuration.code_suggestions_model)
+    context = await template.ainvoke({
+        "messages": state.messages,
+        "code_files": "\n\n".join(code_files),
+    }, config)
+    response = await model.ainvoke(context, config)
+
+    return {"messages": [response]}
 
 
 # Initialize the state with default values

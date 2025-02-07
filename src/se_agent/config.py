@@ -50,6 +50,21 @@ class Configuration:
         },
     )
 
+    code_suggestions_system_prompt: str = field (
+        default=prompts.CODE_SUGGESTION_SYSTEM_PROMPT,
+        metadata={"description": "System prompt for code change suggestions task."},
+    )
+
+    code_suggestions_model: Annotated[
+        str,
+        {"__template_metadata__": {"kind": "llm"}}
+    ] = field(
+        default="openai/gpt-4o",
+        metadata={
+            "description": "Language model to use for code change suggestions task. Should be in the form: provider/model-name."
+        },
+    )
+
     gh_repository_url: str = field(
         default="https://github.com/praneetdhoolia/langgraph-se-agent",
         metadata={"description": "E.g., https://github.com/owner/repo"},

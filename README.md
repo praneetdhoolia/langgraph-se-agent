@@ -110,3 +110,7 @@ We follow a hierarchical approach to localize the issue being discussed in the u
     - results in less accurate responses
 
 2. It is intuitive! Say the code repository was available as a book. The high-order understanding represented by package-level summaries is like a **table of contents** or *outline*. Resolving an issue is like answering a question using this book. We'd first consult the table of contents to assess which chapters are relevant. We'd then go to those chapters and assess which sections are relevant, and then answer the question based on those parts. This keeps the context strictly relevant to the query, allowing a faster and more accurate response, all within token limits!
+
+## Full Demo
+
+https://github.com/user-attachments/assets/6c4955a0-323f-457e-9b76-fa781edea772

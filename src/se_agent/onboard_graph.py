@@ -111,7 +111,6 @@ async def save_file_summaries(state: OnboardState, *, config: RunnableConfig):
     Also creates the database schema if it's not present.
     """
 
-    configuration = Configuration.from_runnable_config(config)
     conn = sqlite3.connect("store.db")
     conn.execute("PRAGMA foreign_keys = ON;")
 
@@ -121,6 +120,8 @@ async def save_file_summaries(state: OnboardState, *, config: RunnableConfig):
         url         TEXT NOT NULL,
         src_path    TEXT NOT NULL,
         branch      TEXT NOT NULL,
+        created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+        last_modified_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(url, src_path, branch)
     );
     """)
@@ -129,6 +130,8 @@ async def save_file_summaries(state: OnboardState, *, config: RunnableConfig):
         repo_id      INTEGER NOT NULL,
         package_name TEXT NOT NULL,
         summary      TEXT,
+        created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+        last_modified_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (repo_id) REFERENCES repositories(repo_id),
         UNIQUE(repo_id, package_name)
     );
@@ -139,6 +142,8 @@ async def save_file_summaries(state: OnboardState, *, config: RunnableConfig):
         package_id  INTEGER NOT NULL,
         file_path   TEXT NOT NULL,
         summary     TEXT,
+        created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+        last_modified_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (repo_id) REFERENCES repositories(repo_id),
         FOREIGN KEY (package_id) REFERENCES packages(package_id),
         UNIQUE(repo_id, package_id, file_path)
@@ -156,14 +161,16 @@ async def save_file_summaries(state: OnboardState, *, config: RunnableConfig):
 
     if row is None:
         # Insert a new repository
-        cursor = conn.execute("""INSERT INTO repositories (url, src_path, branch)
-            VALUES (?, ?, ?)
+        cursor = conn.execute("""INSERT INTO repositories (url, src_path, branch, last_modified_at)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
         """, (state.repo.url,
               state.repo.src_folder,
               state.repo.branch))
         repo_id = cursor.lastrowid
     else:
         repo_id = row[0]
+        conn.execute("""UPDATE repositories SET last_modified_at = CURRENT_TIMESTAMP
+            WHERE repo_id = ?""", (repo_id,))
 
     # Group filepaths by top-level packages {top_level_package: [filepaths]}
     pkg_dict = group_by_top_level_packages(state.filepaths, src_folder=state.repo.src_folder)
@@ -182,8 +189,8 @@ async def save_file_summaries(state: OnboardState, *, config: RunnableConfig):
 
         if pkg_row is None:
             # Insert new row with summary = NULL
-            cursor = conn.execute("""INSERT INTO packages (repo_id, package_name, summary)
-                VALUES (?, ?, NULL)
+            cursor = conn.execute("""INSERT INTO packages (repo_id, package_name, summary, last_modified_at)
+                VALUES (?, ?, NULL, CURRENT_TIMESTAMP)
             """, (repo_id, pkg_name))
             package_id = cursor.lastrowid
         else:
@@ -197,10 +204,11 @@ async def save_file_summaries(state: OnboardState, *, config: RunnableConfig):
         for fsum in state.file_summaries:
             if fsum.filepath in file_list:
                 # Insert the file row using the known package_id
-                conn.execute("""INSERT INTO files (repo_id, package_id, file_path, summary)
-                    VALUES (?, ?, ?, ?)
+                conn.execute("""INSERT INTO files (repo_id, package_id, file_path, summary, last_modified_at)
+                    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
                     ON CONFLICT(repo_id, package_id, file_path) DO UPDATE SET 
-                        summary = excluded.summary
+                        summary = excluded.summary,
+                        last_modified_at = CURRENT_TIMESTAMP
                 """, (repo_id, package_id, fsum.filepath, fsum.summary))
 
     conn.commit()
@@ -263,7 +271,7 @@ async def save_package_summaries(state: OnboardState, *, config: RunnableConfig)
     for psum in state.package_summaries:
         package_id = state.package_name_index[psum.package_name].package_id
         conn.execute("""UPDATE packages
-            SET summary = ?
+            SET summary = ?, last_modified_at = CURRENT_TIMESTAMP
             WHERE repo_id = ? AND package_id = ?
         """, (psum.summary, state.repo_id, package_id))
 

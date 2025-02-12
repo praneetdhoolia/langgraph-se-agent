@@ -10,6 +10,7 @@ from langgraph.graph import (
 from se_agent.state import (
     FilepathState,
     FileSummary,
+    OnboardInputState,
     OnboardState,
     Package,
     PackageState,
@@ -27,9 +28,9 @@ from se_agent.utils import (
 )
 
 
-async def get_filepaths(_: OnboardState, *, config: RunnableConfig):
+async def get_filepaths(state: OnboardState, *, config: RunnableConfig):
     configuration = Configuration.from_runnable_config(config)
-    base_url, owner, repo = split_github_url(configuration.gh_repository_url)
+    base_url, owner, repo = split_github_url(state.repo.url)
     api_url = "https://api.github.com" if base_url == "https://github.com" else f"{base_url}/api/v3"
     headers = {"Authorization": f"Bearer {configuration.gh_token}"}
 
@@ -38,8 +39,8 @@ async def get_filepaths(_: OnboardState, *, config: RunnableConfig):
         headers,
         owner,
         repo, 
-        path=configuration.gh_src_folder, 
-        branch=configuration.gh_repository_branch
+        path=state.repo.src_folder, 
+        branch=state.repo.branch
     )
 
     file_extensions_images_and_media = [   
@@ -68,13 +69,13 @@ def continue_to_save_file_summaries(state: OnboardState, *, config: RunnableConf
     Each `Send` object consists of the name of a node in the graph
     as well as the state to send to that node.
     """
-    return [Send("generate_file_summary", FilepathState(filepath=filepath)) for filepath in state.filepaths]
+    return [Send("generate_file_summary", FilepathState(filepath=filepath, repo=state.repo)) for filepath in state.filepaths]
 
 
 async def generate_file_summary(state: FilepathState, *, config: RunnableConfig):
     # Get the file content
     configuration = Configuration.from_runnable_config(config)
-    base_url, owner, repo = split_github_url(configuration.gh_repository_url)
+    base_url, owner, repo = split_github_url(state.repo.url)
     api_url = "https://api.github.com" if base_url == "https://github.com" else f"{base_url}/api/v3"
     headers = {"Authorization": f"Bearer {configuration.gh_token}"}
     file_type = state.filepath.split(".")[-1]
@@ -84,7 +85,7 @@ async def generate_file_summary(state: FilepathState, *, config: RunnableConfig)
         owner,
         repo, 
         filepath=state.filepath,
-        branch=configuration.gh_repository_branch
+        branch=state.repo.branch
     )
 
     if file_content is None or file_content.strip() == "": 
@@ -142,28 +143,28 @@ async def save_file_summaries(state: OnboardState, *, config: RunnableConfig):
     """)
 
     # Insert (or fetch) the repository row ---
-    base_url, owner, repo = split_github_url(configuration.gh_repository_url)
+    base_url, owner, repo = split_github_url(state.repo.url)
     cursor = conn.execute("""SELECT repo_id
         FROM repositories
         WHERE url = ? AND src_path = ? AND branch = ?
-    """, (configuration.gh_repository_url,
-          configuration.gh_src_folder,
-          configuration.gh_repository_branch))
+    """, (state.repo.url,
+          state.repo.src_folder,
+          state.repo.branch))
     row = cursor.fetchone()
 
     if row is None:
         # Insert a new repository
         cursor = conn.execute("""INSERT INTO repositories (url, src_path, branch)
             VALUES (?, ?, ?)
-        """, (configuration.gh_repository_url,
-              configuration.gh_src_folder,
-              configuration.gh_repository_branch))
+        """, (state.repo.url,
+              state.repo.src_folder,
+              state.repo.branch))
         repo_id = cursor.lastrowid
     else:
         repo_id = row[0]
 
     # Group filepaths by top-level packages {top_level_package: [filepaths]}
-    pkg_dict = group_by_top_level_packages(state.filepaths, src_folder=configuration.gh_src_folder)
+    pkg_dict = group_by_top_level_packages(state.filepaths, src_folder=state.repo.src_folder)
 
     # We'll store {pkg_name: Package} in the state for quick lookup
     package_name_index = {}
@@ -268,7 +269,7 @@ async def save_package_summaries(state: OnboardState, *, config: RunnableConfig)
 
 
 # Initialize the state with default values
-builder = StateGraph(state_schema=OnboardState, config_schema=Configuration)
+builder = StateGraph(state_schema=OnboardState, input=OnboardInputState, config_schema=Configuration)
 
 builder.add_node(get_filepaths)
 builder.add_node(generate_file_summary)

@@ -65,24 +65,9 @@ class Configuration:
         },
     )
 
-    gh_repository_url: str = field(
-        default="https://github.com/praneetdhoolia/langgraph-se-agent",
-        metadata={"description": "E.g., https://github.com/owner/repo"},
-    )
-
-    gh_repository_branch: str = field(
-        default="main",
-        metadata={"description": "E.g., main / master (Branch of the GitHub repository to work with.)"},
-    )
-
     gh_token: str = field(
         default=os.getenv('GH_TOKEN'),
         metadata={"description": "GitHub token for the se-agent to use."},
-    )
-
-    gh_src_folder: Optional[str] = field(
-        default="src/se_agent",
-        metadata={"description": "E.g., src/<module> (Source root in the GitHub repository."},
     )
 
     @classmethod

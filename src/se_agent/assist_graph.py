@@ -10,6 +10,7 @@ from langgraph.graph import (
 from se_agent.state import (
     FileContent,
     FilepathState,
+    InputState,
     Package,
     PackageSuggestions,
     package_suggestions_format_instuctions,
@@ -39,9 +40,9 @@ async def localize_packages(state: State, *, config: RunnableConfig):
     cursor = conn.execute("""SELECT repo_id
         FROM repositories
         WHERE url = ? AND src_path = ? AND branch = ?
-    """, (configuration.gh_repository_url,
-          configuration.gh_src_folder,
-          configuration.gh_repository_branch))
+    """, (state.repo.url,
+          state.repo.src_folder,
+          state.repo.branch))
     row = cursor.fetchone()
     repo_id = row[0]
 
@@ -124,14 +125,14 @@ def continue_to_suggest_solution(state: State, *, config: RunnableConfig):
     return [
         Send(
             "fetch_file_content",
-            FilepathState(filepath=file_suggestion.filepath),
+            FilepathState(filepath=file_suggestion.filepath, repo=state.repo),
         ) 
         for file_suggestion in state.file_suggestions.files
     ]
 
 async def fetch_file_content(state: FilepathState, *, config: RunnableConfig):
     configuration = Configuration.from_runnable_config(config)
-    base_url, owner, repo = split_github_url(configuration.gh_repository_url)
+    base_url, owner, repo = split_github_url(state.repo.url)
     api_url = "https://api.github.com" if base_url == "https://github.com" else f"{base_url}/api/v3"
     headers = {"Authorization": f"Bearer {configuration.gh_token}"}
 
@@ -141,7 +142,7 @@ async def fetch_file_content(state: FilepathState, *, config: RunnableConfig):
         owner,
         repo,
         filepath=state.filepath,
-        branch=configuration.gh_repository_branch
+        branch=state.repo.branch
     )
 
     return {"file_contents": [FileContent(filepath=state.filepath, content=file_content)]}
@@ -176,7 +177,7 @@ async def suggest_solution(state: State, *, config: RunnableConfig):
 
 
 # Initialize the state with default values
-builder = StateGraph(state_schema=State, config_schema=Configuration)
+builder = StateGraph(state_schema=State, input=InputState, config_schema=Configuration)
 
 builder.add_node(localize_packages)
 builder.add_node(localize_files)

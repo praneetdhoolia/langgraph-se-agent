@@ -9,9 +9,33 @@ from langchain_core.output_parsers import PydanticOutputParser
 from langchain_core.messages import AnyMessage
 from langgraph.graph import add_messages
 
+class Repo(BaseModel):
+    url: str = Field(
+        default="https://github.com/praneetdhoolia/langgraph-se-agent",
+        examples=["https://github.com/praneetdhoolia/langgraph-se-agent"],
+        description="Repository URL."
+    )
+    src_folder: str = Field(
+        default="src/se_agent",
+        examples=["src/se_agent"],
+        description="Source folder of the repository."
+    )
+    branch: str = Field(
+        default="main",
+        examples=["main", "master", "develop"],
+        description="Branch of the repository."
+    )
 
 @dataclass(kw_only=True)
-class OnboardState:
+class OnboardInputState:
+    repo: Repo = Field(default_factory=Repo, description="Details of the onboarding repo.")
+
+    def __post_init__(self):
+        if isinstance(self.repo, dict):
+            self.repo = Repo(**self.repo)
+
+@dataclass(kw_only=True)
+class OnboardState(OnboardInputState):
     repo_id: int = field(default=0)
     """Repository ID. Defaults to 0 if not provided."""
 
@@ -41,6 +65,11 @@ class FileSummary:
 class FilepathState:
     filepath: str
     """Github file path to be processed."""
+
+    repo: Repo = Field(
+        default_factory=Repo,
+        description = """Repository details from GitHub."""
+    )
 
 
 @dataclass(kw_only=True)
@@ -79,43 +108,15 @@ class PackageSummary:
 
 @dataclass(kw_only=True)
 class InputState:
-    """Represents the input state for the agent.
-
-    This class defines the structure of the input state, which includes
-    the messages exchanged between the user and the agent. It serves as
-    a restricted version of the full State, providing a narrower interface
-    to the outside world compared to what is maintained internally.
-    """
-
     messages: Annotated[Sequence[AnyMessage], add_messages]
-    """Messages track the primary execution state of the agent.
+    """Messages track the primary execution state of the agent."""
 
-    Typically accumulates a pattern of Human/AI/Human/AI messages; if
-    you were to combine this template with a tool-calling ReAct agent pattern,
-    it may look like this:
+    repo: Repo = Field(default_factory=Repo)
+    """Repository details from GitHub """
 
-    1. HumanMessage - user input
-    2. AIMessage with .tool_calls - agent picking tool(s) to use to collect
-         information
-    3. ToolMessage(s) - the responses (or errors) from the executed tools
-    
-        (... repeat steps 2 and 3 as needed ...)
-    4. AIMessage without .tool_calls - agent responding in unstructured
-        format to the user.
-
-    5. HumanMessage - user responds with the next conversational turn.
-
-        (... repeat steps 2-5 as needed ... )
-    
-    Merges two lists of messages, updating existing messages by ID.
-
-    By default, this ensures the state is "append-only", unless the
-    new message has the same ID as an existing message.
-
-    Returns:
-        A new list of messages with the messages from `right` merged into `left`.
-        If a message in `right` has the same ID as a message in `left`, the
-        message from `right` will replace the message from `left`."""
+    def __post_init__(self):
+        if isinstance(self.repo, dict):
+            self.repo = Repo(**self.repo)
 
 ################################################################################
 

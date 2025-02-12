@@ -23,7 +23,6 @@ from se_agent.utils import (
     get_file_content,
     load_chat_model,
     shift_markdown_headings,
-    split_github_url
 )
 
 
@@ -132,19 +131,7 @@ def continue_to_suggest_solution(state: State, *, config: RunnableConfig):
 
 async def fetch_file_content(state: FilepathState, *, config: RunnableConfig):
     configuration = Configuration.from_runnable_config(config)
-    base_url, owner, repo = split_github_url(state.repo.url)
-    api_url = "https://api.github.com" if base_url == "https://github.com" else f"{base_url}/api/v3"
-    headers = {"Authorization": f"Bearer {configuration.gh_token}"}
-
-    file_content = get_file_content(
-        api_url,
-        headers,
-        owner,
-        repo,
-        filepath=state.filepath,
-        branch=state.repo.branch
-    )
-
+    file_content = get_file_content(state.repo.url, state.filepath, configuration.gh_token, state.repo.branch)
     return {"file_contents": [FileContent(filepath=state.filepath, content=file_content)]}
 
 async def suggest_solution(state: State, *, config: RunnableConfig):

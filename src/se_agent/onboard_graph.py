@@ -25,34 +25,13 @@ from se_agent.utils import (
     load_chat_model,
     shift_markdown_headings,
     split_github_url,
+    file_extensions_images_and_media
 )
 
 
 async def get_filepaths(state: OnboardState, *, config: RunnableConfig):
     configuration = Configuration.from_runnable_config(config)
-    base_url, owner, repo = split_github_url(state.repo.url)
-    api_url = "https://api.github.com" if base_url == "https://github.com" else f"{base_url}/api/v3"
-    headers = {"Authorization": f"Bearer {configuration.gh_token}"}
-
-    filepaths = get_all_files(
-        api_url,
-        headers,
-        owner,
-        repo, 
-        path=state.repo.src_folder, 
-        branch=state.repo.branch
-    )
-
-    file_extensions_images_and_media = [   
-        # Image and Media files
-        "png", "jpg", "jpeg", "gif", "bmp", "tiff", "svg", "ico", "webp",
-        
-        # Audio files
-        "mp3", "wav", "ogg", "flac", "aac", "m4a",
-        
-        # Video files
-        "mp4", "mkv", "avi", "mov", "wmv", "flv", "webm",
-    ]
+    filepaths = get_all_files(state.repo.url, configuration.gh_token, state.repo.src_folder, state.repo.branch)
 
     return {"filepaths": [
             filepath
@@ -75,18 +54,8 @@ def continue_to_save_file_summaries(state: OnboardState, *, config: RunnableConf
 async def generate_file_summary(state: FilepathState, *, config: RunnableConfig):
     # Get the file content
     configuration = Configuration.from_runnable_config(config)
-    base_url, owner, repo = split_github_url(state.repo.url)
-    api_url = "https://api.github.com" if base_url == "https://github.com" else f"{base_url}/api/v3"
-    headers = {"Authorization": f"Bearer {configuration.gh_token}"}
     file_type = state.filepath.split(".")[-1]
-    file_content = get_file_content(
-        api_url,
-        headers,
-        owner,
-        repo, 
-        filepath=state.filepath,
-        branch=state.repo.branch
-    )
+    file_content = get_file_content(state.repo.url, state.filepath, configuration.gh_token, state.repo.branch)
 
     if file_content is None or file_content.strip() == "": 
         return {"file_summaries": []}

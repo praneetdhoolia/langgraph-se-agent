@@ -8,6 +8,18 @@ from langchain.chat_models import init_chat_model
 from langchain_core.language_models import BaseChatModel
 
 
+file_extensions_images_and_media = [   
+        # Image and Media files
+        "png", "jpg", "jpeg", "gif", "bmp", "tiff", "svg", "ico", "webp",
+        
+        # Audio files
+        "mp3", "wav", "ogg", "flac", "aac", "m4a",
+        
+        # Video files
+        "mp4", "mkv", "avi", "mov", "wmv", "flv", "webm",
+    ]
+
+
 def split_github_url(repo_url):
     parsed_url = urlparse(repo_url)
     parts = parsed_url.path.strip("/").split("/")
@@ -21,9 +33,75 @@ def split_github_url(repo_url):
     return base_url, owner, repo
 
 
-def get_all_files(api_url, headers, owner, repo, path="", branch="main"):
+def create_auth_headers(gh_token: str) -> dict[str, str]:
+    """Create authorization headers for the GitHub API.
+
+    Args:
+        gh_token (str): GitHub personal access token.
+
+    Returns:
+        dict[str, str]: Headers containing the authorization bearer token.
+    """
+    headers = {"Authorization": f"Bearer {gh_token}"}
+    return headers
+
+
+def get_github_api_endpoint(base_url: str) -> str:
+    """Construct the GitHub API endpoint for either public github.com or an enterprise instance.
+
+    Args:
+        base_url (str): The base URL of the GitHub instance.
+
+    Returns:
+        str: The root URL of the REST API, typically "https://api.github.com" or <base_url>/api/v3.
+    """
+    api_url = (
+        "https://api.github.com"
+        if base_url == "https://github.com"
+        else f"{base_url}/api/v3"
+    )
+
+    return api_url
+
+
+def get_all_files(repo_url: str, gh_token: str, path: str = "", branch: str = "main") -> list[str]:
+    """Retrieve all file paths from a GitHub repository.
+
+    This function uses the GitHub REST API to recursively traverse a repository directory
+    and gather the paths of all files.
+
+    Args:
+        repo_url (str): The GitHub repository URL.
+        gh_token (str): GitHub personal access token for authorization.
+        path (str, optional): Subdirectory path to traverse. Defaults to "".
+        branch (str, optional): Branch name. Defaults to "main".
+
+    Returns:
+        list[str]: A list of file paths within the specified repository and branch.
+    """
+    base_url, owner, repo = split_github_url(repo_url)
+    api_url = get_github_api_endpoint(base_url)
+    headers = create_auth_headers(gh_token)
+
+    return _get_all_files_worker(api_url, headers, owner, repo, path, branch)
+
+
+def _get_all_files_worker(api_url: str, headers: dict, owner: str, repo: str, path: str, branch: str) -> list[str]:
+    """Helper function to recursively fetch all file paths from a given path.
+
+    Args:
+        api_url (str): The GitHub API endpoint.
+        headers (dict): The request headers including authorization.
+        owner (str): Repository owner.
+        repo (str): Repository name.
+        path (str): Directory path to traverse.
+        branch (str): Branch name.
+
+    Returns:
+        list[str]: A list of file paths.
+    """
     response = requests.get(f"{api_url}/repos/{owner}/{repo}/contents/{path}?ref={branch}", headers=headers)
-    
+
     if response.status_code != 200:
         print(f"Error: {response.status_code}, {response.text}")
         return []
@@ -33,14 +111,29 @@ def get_all_files(api_url, headers, owner, repo, path="", branch="main"):
         if item["type"] == "file":
             file_list.append(item["path"])
         elif item["type"] == "dir":
-            file_list.extend(get_all_files(api_url, headers, owner, repo, item["path"], branch))  # Recursive call
-    
+            # Recursive call to gather files in subdirectories
+            file_list.extend(get_all_files(api_url, headers, owner, repo, item["path"], branch))
+
     return file_list
 
 
-def get_file_content(api_url, headers, owner, repo, filepath, branch="main"):
+def get_file_content(repo_url: str, filepath: str, gh_token: str, branch: str = "main") -> str:
+    """Fetch the content of a single file from GitHub (base64-decoded).
+
+    Args:
+        repo_url (str): The GitHub repository URL.
+        filepath (str): The path to the target file in the repository.
+        gh_token (str): GitHub personal access token for authorization.
+        branch (str, optional): Branch name. Defaults to "main".
+
+    Returns:
+        str: The raw text content of the file, or an empty string if not found.
+    """
+    base_url, owner, repo = split_github_url(repo_url)
+    api_url = get_github_api_endpoint(base_url)
+    headers = create_auth_headers(gh_token)
+
     response = requests.get(f"{api_url}/repos/{owner}/{repo}/contents/{filepath}?ref={branch}", headers=headers)
-    
     if response.status_code != 200:
         print(f"Error: {response.status_code}, {response.text}")
         return ""

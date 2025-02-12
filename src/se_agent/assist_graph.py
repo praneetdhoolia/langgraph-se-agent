@@ -20,7 +20,7 @@ from se_agent.state import (
 )
 from se_agent.config import Configuration
 from se_agent.utils import (
-    get_file_content,
+    get_file_content_from_github,
     load_chat_model,
     shift_markdown_headings,
 )
@@ -131,7 +131,7 @@ def continue_to_suggest_solution(state: State, *, config: RunnableConfig):
 
 async def fetch_file_content(state: FilepathState, *, config: RunnableConfig):
     configuration = Configuration.from_runnable_config(config)
-    file_content = get_file_content(state.repo.url, state.filepath, configuration.gh_token, state.repo.branch)
+    file_content = get_file_content_from_github(state.repo.url, state.filepath, configuration.gh_token, state.repo.branch)
     return {"file_contents": [FileContent(filepath=state.filepath, content=file_content)]}
 
 async def suggest_solution(state: State, *, config: RunnableConfig):

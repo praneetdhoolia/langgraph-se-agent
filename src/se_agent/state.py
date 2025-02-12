@@ -39,6 +39,9 @@ class OnboardState(OnboardInputState):
     repo_id: int = field(default=0)
     """Repository ID. Defaults to 0 if not provided."""
 
+    repo_dir: str = None
+    """Temporary directory where the repository is cloned."""
+
     filepaths: Annotated[list, operator.add] = field(default_factory=list)
     """List of github file paths to be processed."""
 
@@ -70,6 +73,9 @@ class FilepathState:
         default_factory=Repo,
         description = """Repository details from GitHub."""
     )
+
+    repo_dir: str = None
+    """Temporary directory where the repository is cloned."""
 
 
 @dataclass(kw_only=True)

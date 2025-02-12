@@ -2,7 +2,10 @@ import base64
 import os
 import re
 import requests
+import shutil
 from urllib.parse import urlparse
+
+from git import Repo
 
 from langchain.chat_models import init_chat_model
 from langchain_core.language_models import BaseChatModel
@@ -64,7 +67,7 @@ def get_github_api_endpoint(base_url: str) -> str:
     return api_url
 
 
-def get_all_files(repo_url: str, gh_token: str, path: str = "", branch: str = "main") -> list[str]:
+def get_all_files_from_github(repo_url: str, gh_token: str, path: str = "", branch: str = "main") -> list[str]:
     """Retrieve all file paths from a GitHub repository.
 
     This function uses the GitHub REST API to recursively traverse a repository directory
@@ -83,10 +86,15 @@ def get_all_files(repo_url: str, gh_token: str, path: str = "", branch: str = "m
     api_url = get_github_api_endpoint(base_url)
     headers = create_auth_headers(gh_token)
 
-    return _get_all_files_worker(api_url, headers, owner, repo, path, branch)
+    filepaths = _get_all_files_from_github_worker(api_url, headers, owner, repo, path, branch)
+    return [
+        filepath
+        for filepath in filepaths
+        if filepath.split(".")[-1] not in file_extensions_images_and_media
+    ]
 
 
-def _get_all_files_worker(api_url: str, headers: dict, owner: str, repo: str, path: str, branch: str) -> list[str]:
+def _get_all_files_from_github_worker(api_url: str, headers: dict, owner: str, repo: str, path: str, branch: str) -> list[str]:
     """Helper function to recursively fetch all file paths from a given path.
 
     Args:
@@ -112,12 +120,12 @@ def _get_all_files_worker(api_url: str, headers: dict, owner: str, repo: str, pa
             file_list.append(item["path"])
         elif item["type"] == "dir":
             # Recursive call to gather files in subdirectories
-            file_list.extend(get_all_files(api_url, headers, owner, repo, item["path"], branch))
+            file_list.extend(get_all_files_from_github(api_url, headers, owner, repo, item["path"], branch))
 
     return file_list
 
 
-def get_file_content(repo_url: str, filepath: str, gh_token: str, branch: str = "main") -> str:
+def get_file_content_from_github(repo_url: str, filepath: str, gh_token: str, branch: str = "main") -> str:
     """Fetch the content of a single file from GitHub (base64-decoded).
 
     Args:
@@ -141,6 +149,89 @@ def get_file_content(repo_url: str, filepath: str, gh_token: str, branch: str = 
     file_data = response.json()
     file_content = base64.b64decode(file_data["content"]).decode("utf-8")
     return file_content
+
+
+def create_local_repo_dir(repo_url: str, branch: str) -> str:
+    """Create a local directory structure for cloning a GitHub repository.
+
+    Args:
+        repo_url (str): The GitHub repository URL.
+        branch (str): The branch name to be cloned.
+
+    Returns:
+        str: The path to the newly created local directory.
+    """
+    _, owner, repo = split_github_url(repo_url)
+    repo_dir = os.path.join(os.getcwd(), "tmp", owner, repo, branch)
+    if os.path.exists(repo_dir):
+        shutil.rmtree(repo_dir)
+    os.makedirs(repo_dir, exist_ok=True)
+    return repo_dir
+
+
+def clone_repository(repo_url: str, branch: str) -> str:
+    """Clone a GitHub repository locally, checking out a specified branch.
+
+    Args:
+        repo_url (str): The GitHub repository URL.
+        branch (str): The branch to check out.
+
+    Raises:
+        RuntimeError: If the repository fails to clone.
+
+    Returns:
+        str: The path to the local cloned repository.
+    """
+    repo_dir = create_local_repo_dir(repo_url, branch)
+    try:
+        Repo.clone_from(repo_url, repo_dir, branch=branch)
+    except Exception as e:
+        raise RuntimeError(f"Failed to clone repository: {e}")
+
+    return repo_dir
+
+
+def remove_cloned_repository(repo_dir: str) -> None:
+    """Remove a previously cloned repository from the local filesystem.
+
+    Args:
+        repo_dir (str): The path to the local repository directory.
+    """
+    if os.path.exists(repo_dir):
+        shutil.rmtree(repo_dir)
+
+
+def get_filepaths_from_local(repo_dir: str, src_folder: str) -> list[str]:
+    """Retrieve all file paths under a given source folder, excluding images/media.
+
+    Args:
+        repo_dir (str): The local repository directory.
+        src_folder (str): The subfolder within the repo directory to scan for files.
+
+    Returns:
+        list[str]: Relative file paths (excluding images and media) from the specified source folder.
+    """
+    filepaths = []
+    for root, _, files in os.walk(os.path.join(repo_dir, src_folder)):
+        for file in files:
+            if file.split(".")[-1] not in file_extensions_images_and_media:
+                filepaths.append(os.path.relpath(os.path.join(root, file), repo_dir))
+    return filepaths
+
+
+def get_file_content_from_local(repo_dir: str, filepath: str) -> str:
+    """Read the content of a file from the local filesystem.
+
+    Args:
+        repo_dir (str): The path to the local repository directory.
+        filepath (str): Relative path to the file within the repository.
+
+    Returns:
+        str: The contents of the file as a string.
+    """
+    file_path = os.path.join(repo_dir, filepath)
+    with open(file_path, "r", encoding="utf-8") as file:
+        return file.read()
 
 
 def load_chat_model(fully_specified_name: str) -> BaseChatModel:

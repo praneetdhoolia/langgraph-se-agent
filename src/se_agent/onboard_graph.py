@@ -18,26 +18,39 @@ from se_agent.state import (
 )
 from se_agent.config import Configuration
 from se_agent.utils import (
+    clone_repository,
     extract_code_block_content,
-    get_all_files,
-    get_file_content,
+    get_all_files_from_github,
+    get_file_content_from_github,
+    get_file_content_from_local,
+    get_filepaths_from_local,
     group_by_top_level_packages,
     load_chat_model,
+    remove_cloned_repository,
     shift_markdown_headings,
-    split_github_url,
-    file_extensions_images_and_media
 )
 
 
 async def get_filepaths(state: OnboardState, *, config: RunnableConfig):
-    configuration = Configuration.from_runnable_config(config)
-    filepaths = get_all_files(state.repo.url, configuration.gh_token, state.repo.src_folder, state.repo.branch)
 
-    return {"filepaths": [
-            filepath
-            for filepath in filepaths
-            if filepath.split(".")[-1] not in file_extensions_images_and_media
-        ]
+    configuration = Configuration.from_runnable_config(config)
+
+    repo_url = state.repo.url
+    src_folder = state.repo.src_folder
+    branch = state.repo.branch
+    token = configuration.gh_token
+
+    # If it's an HTTPS URL, insert the token for private repo access
+    if repo_url.startswith("https://"):
+        repo_url = repo_url.replace("https://", f"https://{token}@")
+
+    repo_dir = clone_repository(repo_url, branch)
+
+    filepaths = get_filepaths_from_local(repo_dir, src_folder)
+
+    return {
+        "filepaths": filepaths,
+        "repo_dir": repo_dir
     }
 
 
@@ -48,15 +61,15 @@ def continue_to_save_file_summaries(state: OnboardState, *, config: RunnableConf
     Each `Send` object consists of the name of a node in the graph
     as well as the state to send to that node.
     """
-    return [Send("generate_file_summary", FilepathState(filepath=filepath, repo=state.repo)) for filepath in state.filepaths]
+    return [Send("generate_file_summary", FilepathState(filepath=filepath, repo=state.repo, repo_dir=state.repo_dir)) for filepath in state.filepaths]
 
 
 async def generate_file_summary(state: FilepathState, *, config: RunnableConfig):
     # Get the file content
     configuration = Configuration.from_runnable_config(config)
     file_type = state.filepath.split(".")[-1]
-    file_content = get_file_content(state.repo.url, state.filepath, configuration.gh_token, state.repo.branch)
 
+    file_content = file_content = get_file_content_from_local(state.repo_dir, state.filepath)
     if file_content is None or file_content.strip() == "": 
         return {"file_summaries": []}
 
@@ -248,6 +261,23 @@ async def save_package_summaries(state: OnboardState, *, config: RunnableConfig)
     conn.close()
 
 
+async def cleanup(state: OnboardState, *, config: RunnableConfig) -> dict:
+    """Remove the cloned repository from the local file system and clear the event.
+
+    Args:
+        state (OnboardState): Contains the repo_dir path to remove.
+        config (RunnableConfig): The runtime configuration (unused).
+
+    Returns:
+        dict: A dictionary setting `repo_dir` and `repo_event` to `None`.
+    """
+    if state.repo_dir:
+        remove_cloned_repository(state.repo_dir)
+        
+    return {
+        "repo_dir": None
+    }
+
 
 # Initialize the state with default values
 builder = StateGraph(state_schema=OnboardState, input=OnboardInputState, config_schema=Configuration)
@@ -257,13 +287,15 @@ builder.add_node(generate_file_summary)
 builder.add_node(save_file_summaries)
 builder.add_node(generate_package_summary)
 builder.add_node(save_package_summaries)
+builder.add_node(cleanup)
 
 builder.add_edge(START, "get_filepaths")
 builder.add_conditional_edges("get_filepaths", continue_to_save_file_summaries, ["generate_file_summary"])
 builder.add_edge("generate_file_summary", "save_file_summaries")
 builder.add_conditional_edges("save_file_summaries", continue_to_save_package_summaries, ["generate_package_summary"])
 builder.add_edge("generate_package_summary", "save_package_summaries")
-builder.add_edge("save_package_summaries", END)
+builder.add_edge("save_package_summaries", "cleanup")
+builder.add_edge("cleanup", END)
 
 graph = builder.compile()
 

@@ -120,7 +120,8 @@ async def save_file_summaries(state: OnboardState, *, config: RunnableConfig):
         repo_id     INTEGER PRIMARY KEY AUTOINCREMENT,
         url         TEXT NOT NULL,
         src_path    TEXT NOT NULL,
-        branch      TEXT NOT NULL
+        branch      TEXT NOT NULL,
+        UNIQUE(url, src_path, branch)
     );
     """)
     conn.execute("""CREATE TABLE IF NOT EXISTS packages (
@@ -128,7 +129,8 @@ async def save_file_summaries(state: OnboardState, *, config: RunnableConfig):
         repo_id      INTEGER NOT NULL,
         package_name TEXT NOT NULL,
         summary      TEXT,
-        FOREIGN KEY (repo_id) REFERENCES repositories(repo_id)
+        FOREIGN KEY (repo_id) REFERENCES repositories(repo_id),
+        UNIQUE(repo_id, package_name)
     );
     """)
     conn.execute("""CREATE TABLE IF NOT EXISTS files (
@@ -138,12 +140,12 @@ async def save_file_summaries(state: OnboardState, *, config: RunnableConfig):
         file_path   TEXT NOT NULL,
         summary     TEXT,
         FOREIGN KEY (repo_id) REFERENCES repositories(repo_id),
-        FOREIGN KEY (package_id) REFERENCES packages(package_id)
+        FOREIGN KEY (package_id) REFERENCES packages(package_id),
+        UNIQUE(repo_id, package_id, file_path)
     );
     """)
 
     # Insert (or fetch) the repository row ---
-    base_url, owner, repo = split_github_url(state.repo.url)
     cursor = conn.execute("""SELECT repo_id
         FROM repositories
         WHERE url = ? AND src_path = ? AND branch = ?
@@ -197,6 +199,8 @@ async def save_file_summaries(state: OnboardState, *, config: RunnableConfig):
                 # Insert the file row using the known package_id
                 conn.execute("""INSERT INTO files (repo_id, package_id, file_path, summary)
                     VALUES (?, ?, ?, ?)
+                    ON CONFLICT(repo_id, package_id, file_path) DO UPDATE SET 
+                        summary = excluded.summary
                 """, (repo_id, package_id, fsum.filepath, fsum.summary))
 
     conn.commit()

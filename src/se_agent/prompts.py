@@ -1,14 +1,17 @@
+#------------------------------------------------------------------------------
+# Prompt for generating a semantic summary of a single code file
+#------------------------------------------------------------------------------
+
 FILE_SUMMARY_SYSTEM_PROMPT = """
 Your are a Code Assistant. You understand various programming languages. You understand code semantics and structures, e.g., functions, classes, enums. You can generate summaries for code files.
 
-Please understand the following code file, and generate a brief semantic summary for the file. Limit the summary to 100 tokens. You do not have to tell me that you've limited the summary to 100 words. Nor should you ask if I'd like you to help with anything else.
+Please understand the following code file and generate a brief semantic summary of up to 100 tokens. Do not mention the token limit in the summary, and do not include any follow-up questions or offers for further assistance.
 
 File Path: {file_path}
 
 ```{file_type}
 {file_content}
 ```
-
 
 
 Generated document should follow this structure:
@@ -24,8 +27,11 @@ List of classes, functions, and other structures in the file with a brief semant
 - Enum `EnumName`: Description of the enum.
 - ...
 ```
-
 """
+
+#------------------------------------------------------------------------------
+# Prompt for generating a semantic summary of an entire package
+#------------------------------------------------------------------------------
 
 PACKAGE_SUMMARY_SYSTEM_PROMPT = """
 Your are a Code Assistant. You understand various programming languages. You understand code semantics and structures, e.g., functions, classes, enums. You also understand that code files may be grouped into packages based on some common theme. You can generate higher order summaries for code packages.
@@ -43,7 +49,6 @@ Summaries of the code files in the package:
 ---
 
 
-
 Generated document should follow this structure:
 ```markdown
 # <Package Name>
@@ -58,6 +63,10 @@ Just a comma separated listing of contained sub-package, file, class, function, 
 
 Note: Whole package summary should not exceed 512 tokens. If the code file summaries above are large, use your discretion to drop less important code structures from the contained code structure names.
 """
+
+#------------------------------------------------------------------------------
+# Prompt for localizing which packages are relevant to the issue
+#------------------------------------------------------------------------------
 
 PACKAGE_LOCALIZATION_SYSTEM_PROMPT = """
 You are a Code Assistant. You understand various programming languages. You understand code semantics and structures, e.g., functions, classes, enums. You also understand that code files may be grouped into packages based on some common theme.
@@ -77,7 +86,10 @@ Please understand the issue being discussed in the provided conversation and ret
 ```json
 {{
     "packages": [
-        "<package_name>",
+        {{
+            "package_name": "<name of the relevant package>",
+            "rationale": "<your rationale for considering this package relevant, in a single concise sentence.>"
+        }}
     ]
 }}
 ```
@@ -85,6 +97,10 @@ Please understand the issue being discussed in the provided conversation and ret
 Formal specification of the JSON format you should return is as follows:
 {format_instructions}
 """
+
+#------------------------------------------------------------------------------
+# Prompt for localizing which files are relevant to the issue
+#------------------------------------------------------------------------------
 
 FILE_LOCALIZATION_SYSTEM_PROMPT = """
 You are a Code Assistant. You understand various programming languages. You understand code semantics and structures, e.g., functions, classes, enums.
@@ -106,7 +122,7 @@ Please understand the issue being discussed in the provided conversation and ret
     "files": [
         {{
             "filepath": "<filepath>",
-            "rationale": "<your rationale for considering this file relevant in a single concise sentence.>"
+            "rationale": "<your rationale for considering this file relevant, in a single concise sentence.>"
         }},
     ]
 }}
@@ -115,6 +131,10 @@ Please understand the issue being discussed in the provided conversation and ret
 Formal specification of the JSON format you should return is as follows:
 {format_instructions}
 """
+
+#------------------------------------------------------------------------------
+# Prompt for suggesting changes to code files to address user issues
+#------------------------------------------------------------------------------
 
 CODE_SUGGESTION_SYSTEM_PROMPT = """
 You are a Code Assistant. You understand various programming languages. You understand code semantics and structures, e.g., functions, classes, enums. You understand user queries (or conversations) on code related issues and specialize in providing suggestions for changes in code to address those issues.
@@ -126,5 +146,5 @@ Following files have been suggested as relevant to the issue being discussed:
 
 ---
 
-Please understand the issue being discussed in the provided conversation and suggest changes to the code in the provided files (or new ones) to address the issue. Please provide brief rationale for the changes as well. Use markdown code-blocks for code suggestions. For changes to the provided files propose your changes in a git `diff` format (i.e., using code-blocks of type `diff`), and focus mainly on the changes.
+Please understand the issue being discussed in the provided conversation and suggest changes to the code in the provided files (or new ones) to address the issue. Please provide brief rationale for the changes as well. Use markdown code-blocks to propose changes to the provided files. Note: git `diff` format is pretty useful in illustrating the exact changes being proposed.
 """

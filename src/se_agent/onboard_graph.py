@@ -12,7 +12,6 @@ from se_agent.state import (
     FileSummary,
     OnboardInputState,
     OnboardState,
-    Package,
     PackageState,
     PackageSummary,
 )
@@ -20,9 +19,8 @@ from se_agent.config import Configuration
 from se_agent.utils import (
     clone_repository,
     extract_code_block_content,
-    get_all_files_from_github,
-    get_file_content_from_github,
     get_file_content_from_local,
+    get_file_content_from_github,
     get_filepaths_from_local,
     group_by_top_level_packages,
     load_chat_model,
@@ -31,13 +29,46 @@ from se_agent.utils import (
 )
 
 
-async def get_filepaths(state: OnboardState, *, config: RunnableConfig):
+def decide_onboarding_or_update(state: OnboardState, *, config: RunnableConfig) -> list[str]:
+    """Decide whether to fetch filepaths (repo-onboard) or handle updates (repo-update).
 
+    Args:
+        state (OnboardState): The current onboarding state, including the event type.
+        config (RunnableConfig): The runtime configuration (unused here, but part of the signature).
+
+    Returns:
+        list[str]: A single-item list containing either "get_filepaths" or "handle_update".
+
+    Raises:
+        ValueError: If the event type is neither "repo-onboard" nor "repo-update".
+    """
+    event_type = state.repo_event.event.event_type
+    
+    if event_type == "repo-onboard":
+        return ["get_filepaths"]
+    elif event_type == "repo-update":
+        return ["handle_update"]
+    else:
+        raise ValueError(f"Invalid event type: {event_type}")
+
+
+async def get_filepaths(state: OnboardState, *, config: RunnableConfig) -> dict:
+    """Clone the repository locally (if HTTPS) and fetch file paths from the local file system.
+
+    Args:
+        state (OnboardState): The current state with repository details (url, branch, src_folder).
+        config (RunnableConfig): The runtime configuration.
+
+    Returns:
+        dict: A dictionary containing:
+            - "filepaths": A list of filepaths discovered locally.
+            - "repo_dir": The local directory where the repo is cloned.
+    """
     configuration = Configuration.from_runnable_config(config)
 
-    repo_url = state.repo.url
-    src_folder = state.repo.src_folder
-    branch = state.repo.branch
+    repo_url = state.repo_event.repo.url
+    src_folder = state.repo_event.repo.src_folder
+    branch = state.repo_event.repo.branch
     token = configuration.gh_token
 
     # If it's an HTTPS URL, insert the token for private repo access
@@ -54,23 +85,184 @@ async def get_filepaths(state: OnboardState, *, config: RunnableConfig):
     }
 
 
+async def handle_update(state: OnboardState, *, config: RunnableConfig) -> dict:
+    """Handle repository updates by removing deleted files/packages and updating timestamps.
+
+    1. If there are deleted files, remove them and any empty packages from the DB.
+    2. Update 'last_modified_at' for:
+       - the repository if ANY file has been deleted or modified
+       - only those packages that lost files but remain in the DB (i.e., not orphaned).
+    3. Return the 'filepaths' = event.modified so we can run the rest of the flow.
+
+    Args:
+        state (OnboardState): The current onboarding state, including details on deleted files.
+        config (RunnableConfig): The runtime configuration.
+
+    Returns:
+        dict: A dictionary containing:
+            - "repo_id" (int): The ID of the affected repository.
+            - "filepaths" (list[str]): The modified file paths.
+            - "packages_impacted" (set[int]): Package IDs that were impacted by file deletions.
+              If no repo was found, returns an empty "filepaths" list.
+    """
+    if not state.repo_event:
+        # No event present, so do nothing special
+        return {"filepaths": []}
+
+    # If there's a repo row for this URL, get the repo_id:
+    repo_url = state.repo_event.repo.url
+    conn = sqlite3.connect("store.db")
+    conn.execute("PRAGMA foreign_keys = ON;")
+
+    # 1) Fetch the repository ID
+    cursor = conn.execute(
+        "SELECT repo_id FROM repositories WHERE url = ?",
+        (repo_url,)
+    )
+    row = cursor.fetchone()
+    if not row:
+        # Repo not found => do nothing.
+        conn.close()
+        return {"filepaths": []}
+
+    repo_id = row[0]
+
+    # 2) If we have deleted files, handle them
+    deleted_files = state.repo_event.event.meta_data.deleted
+    package_ids_with_files_deleted_and_remaining = set()
+    if deleted_files:
+        # Find package_ids for these files before deleting
+        # so we know which packages might need updating.
+        cursor = conn.execute(
+            f"""
+            SELECT package_id
+            FROM files
+            WHERE repo_id = ?
+                AND file_path IN ({','.join(['?']*len(deleted_files))})
+            """,
+            [repo_id] + deleted_files
+        )
+        package_ids_with_file_deletes = {r[0] for r in cursor.fetchall()}
+
+        # Delete those files
+        conn.execute(
+            f"""
+            DELETE FROM files
+            WHERE repo_id = ?
+                AND file_path IN ({','.join(['?']*len(deleted_files))})
+            """,
+            [repo_id] + deleted_files
+        )
+
+        # Delete any orphan packages (no files remain)
+        cursor = conn.execute(
+            "SELECT DISTINCT package_id FROM files WHERE repo_id = ?",
+            (repo_id,)
+        )
+        package_ids_with_files_remaining = {row[0] for row in cursor.fetchall()}
+
+        if package_ids_with_files_remaining:
+            conn.execute(
+                f"""
+                DELETE FROM packages
+                WHERE repo_id = ?
+                    AND package_id NOT IN ({','.join(['?']*len(package_ids_with_files_remaining))})
+                """,
+                [repo_id] + list(package_ids_with_files_remaining)
+            )
+        else:
+            # If no files remain, delete all packages for that repo
+            conn.execute("DELETE FROM packages WHERE repo_id = ?", (repo_id,))
+
+        # changed and remaining packages are of interest to us
+        package_ids_with_files_deleted_and_remaining = package_ids_with_file_deletes & package_ids_with_files_remaining
+        if package_ids_with_files_deleted_and_remaining:
+            conn.execute(f"""
+                UPDATE packages
+                SET last_modified_at = CURRENT_TIMESTAMP
+                WHERE repo_id = ?
+                    AND package_id IN ({','.join(['?']*len(package_ids_with_files_deleted_and_remaining))})
+            """, [repo_id] + list(package_ids_with_files_deleted_and_remaining))
+    
+    # 3) Since we've confirmed there were changes (deleted or modified),
+    #    update the repository's last_modified_at
+    conn.execute("""
+        UPDATE repositories
+           SET last_modified_at = CURRENT_TIMESTAMP
+         WHERE repo_id = ?
+    """, (repo_id,))
+
+    conn.commit()
+    conn.close()
+
+    # 4) Return the modified filepaths so the rest of the flow can process them
+    return {
+        "repo_id": repo_id,
+        "filepaths": state.repo_event.event.meta_data.modified,
+        "packages_impacted": package_ids_with_files_deleted_and_remaining
+    }
+
+
 def continue_to_save_file_summaries(state: OnboardState, *, config: RunnableConfig):
+    """Direct the flow to generate file summaries or skip to saving package summaries.
+
+    If no filepaths remain (but some packages were impacted), we skip directly to
+    generating package summaries. Otherwise, we send a message to generate file summaries.
+
+    Args:
+        state (OnboardState): The current onboarding state.
+        config (RunnableConfig): The runtime configuration (unused here, but part of the signature).
+
+    Returns:
+        list[Send] or dict: If filepaths are present, returns a list of instructions (Send)
+            to generate summaries. If no filepaths remain but we have impacted packages,
+            we call `continue_to_save_package_summaries`.
     """
-    Here we define the logic to map out over the filepaths.
-    We will return a list of `Send` objects
-    Each `Send` object consists of the name of a node in the graph
-    as well as the state to send to that node.
-    """
-    return [Send("generate_file_summary", FilepathState(filepath=filepath, repo=state.repo, repo_dir=state.repo_dir)) for filepath in state.filepaths]
+    # For 'repo-update', with only deletes let's call continue_to_save_package_summaries.
+    if not state.filepaths and state.packages_impacted:
+        return continue_to_save_package_summaries(state, config=config)
+
+    # Map out to generate summaries for each file.
+    return [
+        Send (
+            "generate_file_summary", 
+            FilepathState(filepath=filepath, repo_dir=state.repo_dir, repo_event=state.repo_event)
+        ) 
+        for filepath in state.filepaths
+    ]
 
 
-async def generate_file_summary(state: FilepathState, *, config: RunnableConfig):
-    # Get the file content
+async def generate_file_summary(state: FilepathState, *, config: RunnableConfig) -> dict:
+    """Generate a semantic summary for a single file.
+
+    This function fetches the file content (either from a local clone or via GitHub API
+    for an update event), then uses a language model to create a concise summary.
+
+    Args:
+        state (FilepathState): Contains the filepath, repo directory, and repo event details.
+        config (RunnableConfig): The runtime configuration.
+
+    Returns:
+        dict: A dictionary with a single key "file_summaries", which is a list of FileSummary objects.
+    """
     configuration = Configuration.from_runnable_config(config)
+    
     file_type = state.filepath.split(".")[-1]
+    # Decide if we are in 'onboard' or 'update' mode
+    event_type = state.repo_event.event.event_type
+    if event_type == "repo-update":
+        # We do NOT have a local clone => fetch via GitHub API
+        file_content = get_file_content_from_github(
+            state.repo_event.repo.url,
+            state.filepath,
+            configuration.gh_token,
+            state.repo_event.repo.branch
+        )
+    else:
+        # Default is 'repo-onboard': we have a local clone
+        file_content = get_file_content_from_local(state.repo_dir, state.filepath)
 
-    file_content = file_content = get_file_content_from_local(state.repo_dir, state.filepath)
-    if file_content is None or file_content.strip() == "": 
+    if file_content is None or file_content.strip() == "":
         return {"file_summaries": []}
 
     # Generate the file summary
@@ -84,19 +276,33 @@ async def generate_file_summary(state: FilepathState, *, config: RunnableConfig)
         "file_content": file_content
     }, config)
     response = await model.ainvoke(context, config)
-    return {"file_summaries": [FileSummary(filepath=state.filepath, summary=extract_code_block_content(response.content))]}
+    
+    return {
+        "file_summaries": [FileSummary(filepath=state.filepath, summary=extract_code_block_content(response.content))]
+    }
 
 
-async def save_file_summaries(state: OnboardState, *, config: RunnableConfig):
+async def save_file_summaries(state: OnboardState, *, config: RunnableConfig) -> dict:
+    """Save generated file summaries into a SQLite database.
+
+    Creates the necessary database schema (repositories, packages, files) if it doesn't exist.
+    Fetches or inserts the repository row, updates the last_modified_at column, and associates
+    file summaries with their respective packages.
+
+    Args:
+        state (OnboardState): Contains `file_summaries` to be saved, along with filepaths and repo info.
+        config (RunnableConfig): The runtime configuration.
+
+    Returns:
+        dict: A dictionary containing:
+            - "repo_id" (int): The repository ID for the current repo.
+            - "packages_impacted" (list[int]): A list of packages impacted by the file changes.
+            - "filepaths" and "file_summaries" set to "delete" to clear them from the state.
     """
-    Saves file_summaries to a SQLite database (store.db).
-    Also creates the database schema if it's not present.
-    """
-
     conn = sqlite3.connect("store.db")
     conn.execute("PRAGMA foreign_keys = ON;")
 
-    # Create tables if they do not exist ---
+    # 1) Create tables if they do not exist ---
     conn.execute("""CREATE TABLE IF NOT EXISTS repositories (
         repo_id     INTEGER PRIMARY KEY AUTOINCREMENT,
         url         TEXT NOT NULL,
@@ -132,37 +338,36 @@ async def save_file_summaries(state: OnboardState, *, config: RunnableConfig):
     );
     """)
 
-    # Insert (or fetch) the repository row ---
+    # 2) Insert (or fetch) the repository row ---
     cursor = conn.execute("""SELECT repo_id
         FROM repositories
         WHERE url = ? AND src_path = ? AND branch = ?
-    """, (state.repo.url,
-          state.repo.src_folder,
-          state.repo.branch))
+    """, (state.repo_event.repo.url,
+          state.repo_event.repo.src_folder,
+          state.repo_event.repo.branch))
     row = cursor.fetchone()
 
     if row is None:
         # Insert a new repository
         cursor = conn.execute("""INSERT INTO repositories (url, src_path, branch, last_modified_at)
             VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-        """, (state.repo.url,
-              state.repo.src_folder,
-              state.repo.branch))
+        """, (state.repo_event.repo.url,
+              state.repo_event.repo.src_folder,
+              state.repo_event.repo.branch))
         repo_id = cursor.lastrowid
     else:
         repo_id = row[0]
+        # Update last_modified_at if repo already exists
         conn.execute("""UPDATE repositories SET last_modified_at = CURRENT_TIMESTAMP
             WHERE repo_id = ?""", (repo_id,))
 
-    # Group filepaths by top-level packages {top_level_package: [filepaths]}
-    pkg_dict = group_by_top_level_packages(state.filepaths, src_folder=state.repo.src_folder)
+    # 3) Group filepaths by their top-level package
+    pkg_dict = group_by_top_level_packages(state.filepaths, src_folder=state.repo_event.repo.src_folder)
 
-    # We'll store {pkg_name: Package} in the state for quick lookup
-    package_name_index = {}
+    packages_impacted = []
 
-    # For each package (key in pkg_dict), insert or fetch the package row
+    # For each package in pkg_dict, insert or fetch the package row
     for pkg_name, file_list in pkg_dict.items():
-        # Check if package already exists
         cursor = conn.execute("""SELECT package_id
             FROM packages
             WHERE repo_id = ? AND package_name = ?
@@ -178,14 +383,11 @@ async def save_file_summaries(state: OnboardState, *, config: RunnableConfig):
         else:
             package_id = pkg_row[0]
 
-        package_name_index[pkg_name] = Package(package_id=package_id, name=pkg_name, filepaths=file_list)
+        packages_impacted.append(package_id)
 
-        # Now insert the file summaries that belong to this package
-        # We have the file_list of paths that belong to pkg_name.
-        # We'll find matching summaries in state.file_summaries.
+        # 4) Associate file summaries with this package
         for fsum in state.file_summaries:
             if fsum.filepath in file_list:
-                # Insert the file row using the known package_id
                 conn.execute("""INSERT INTO files (repo_id, package_id, file_path, summary, last_modified_at)
                     VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
                     ON CONFLICT(repo_id, package_id, file_path) DO UPDATE SET 
@@ -198,35 +400,67 @@ async def save_file_summaries(state: OnboardState, *, config: RunnableConfig):
 
     return {
         "repo_id": repo_id,
-        "package_name_index": package_name_index
+        "packages_impacted": packages_impacted,
+        "filepaths": "delete",
+        "file_summaries": "delete"
     }
 
 
 def continue_to_save_package_summaries(state: OnboardState, *, config: RunnableConfig):
-    """ Map out to generate summaries for each package """
+    """Create instructions (Send) to generate package summaries for each impacted package.
 
-    def get_file_summaries(filepaths):
-        return [fsum for fsum in state.file_summaries if fsum.filepath in filepaths]
+    Args:
+        state (OnboardState): The current onboarding state containing impacted packages.
+        config (RunnableConfig): The runtime configuration (unused here).
 
+    Returns:
+        list[Send]: A list of messages instructing the system to generate summaries for each package.
+    """
     return [
         Send(
             "generate_package_summary",
-            PackageState(package_name=package_name, file_summaries=get_file_summaries(package.filepaths))
+            PackageState(package_id=package_id, repo_id=state.repo_id)
         ) 
-        for package_name, package in state.package_name_index.items()
+        for package_id in state.packages_impacted
     ]
 
 
-async def generate_package_summary(state: PackageState, *, config: RunnableConfig):
-    configuration = Configuration.from_runnable_config(config)
+async def generate_package_summary(state: PackageState, *, config: RunnableConfig) -> dict:
+    """Generate a summary for a single package by aggregating file summaries.
 
-    package_name = state.package_name
+    1. Fetch the file summaries for (package_id, repo_id).
+    2. Use a language model to create a consolidated package summary.
+
+    Args:
+        state (PackageState): Contains the package ID and repo ID.
+        config (RunnableConfig): The runtime configuration.
+
+    Returns:
+        dict: A dictionary with "package_summaries" as a list containing one PackageSummary object.
+    """
+    configuration = Configuration.from_runnable_config(config)
+    # 1) Fetch the file summaries for this (package_id, repo_id)
+    conn = sqlite3.connect("store.db")
+    conn.execute("PRAGMA foreign_keys = ON;")
+    cursor = conn.execute("""SELECT file_path, summary
+        FROM files
+        WHERE repo_id = ? AND package_id = ?
+    """, (state.repo_id, state.package_id))
+    file_rows = cursor.fetchall()
+
+    package_name = conn.execute("""SELECT package_name
+        FROM packages
+        WHERE repo_id = ? AND package_id = ?
+    """, (state.repo_id, state.package_id)).fetchone()[0]
+    
+    conn.close()
     
     file_summaries = []
-    for fsum in state.file_summaries:
-        file_summaries.append(f"# {fsum.filepath}\n{shift_markdown_headings(fsum.summary, increment=1)}")
+    for row in file_rows:
+        filepath, summary = row
+        file_summaries.append(f"# {filepath}\n{shift_markdown_headings(summary, increment=1)}")
 
-    # Generate the package summary
+    # 2) Generate the package summary
     template = ChatPromptTemplate.from_messages([
         ("human", configuration.package_summary_system_prompt),
     ])
@@ -236,29 +470,40 @@ async def generate_package_summary(state: PackageState, *, config: RunnableConfi
         "file_summaries": "\n\n".join(file_summaries)
     }, config)
     response = await model.ainvoke(context, config)
-    return {"package_summaries": [PackageSummary(package_name=package_name, summary=extract_code_block_content(response.content))]}
+    
+    return {
+        "package_summaries": [PackageSummary(package_id=state.package_id, summary=extract_code_block_content(response.content))]
+    }
 
 
-async def save_package_summaries(state: OnboardState, *, config: RunnableConfig):
-    """ Saves package_summaries to a SQLite database (store.db). """
+async def save_package_summaries(state: OnboardState, *, config: RunnableConfig) -> dict:
+    """Save package summaries to the SQLite database.
 
-    configuration = Configuration.from_runnable_config(config)
+    For each package summary, update the `summary` column in the packages table.
 
-    # Connect to (or create) the store.db file
-    # If it doesn't exist, sqlite3.connect(...) will create it automatically.
+    Args:
+        state (OnboardState): Contains the newly generated "package_summaries" and the current repo_id.
+        config (RunnableConfig): The runtime configuration.
+
+    Returns:
+        dict: A dictionary with "packages_impacted" and "package_summaries" set to "delete" to clear them from the state.
+    """
     conn = sqlite3.connect("store.db")
     conn.execute("PRAGMA foreign_keys = ON;")
 
-    # let's upsert packages
     for psum in state.package_summaries:
-        package_id = state.package_name_index[psum.package_name].package_id
         conn.execute("""UPDATE packages
             SET summary = ?, last_modified_at = CURRENT_TIMESTAMP
             WHERE repo_id = ? AND package_id = ?
-        """, (psum.summary, state.repo_id, package_id))
+        """, (psum.summary, state.repo_id, psum.package_id))
 
     conn.commit()
     conn.close()
+
+    return {
+        "packages_impacted": "delete",
+        "package_summaries": "delete"
+    }
 
 
 async def cleanup(state: OnboardState, *, config: RunnableConfig) -> dict:
@@ -275,7 +520,8 @@ async def cleanup(state: OnboardState, *, config: RunnableConfig) -> dict:
         remove_cloned_repository(state.repo_dir)
         
     return {
-        "repo_dir": None
+        "repo_dir": None,
+        "repo_event": None
     }
 
 
@@ -283,14 +529,16 @@ async def cleanup(state: OnboardState, *, config: RunnableConfig) -> dict:
 builder = StateGraph(state_schema=OnboardState, input=OnboardInputState, config_schema=Configuration)
 
 builder.add_node(get_filepaths)
+builder.add_node(handle_update)
 builder.add_node(generate_file_summary)
 builder.add_node(save_file_summaries)
 builder.add_node(generate_package_summary)
 builder.add_node(save_package_summaries)
 builder.add_node(cleanup)
 
-builder.add_edge(START, "get_filepaths")
+builder.add_conditional_edges(START, decide_onboarding_or_update, ["handle_update", "get_filepaths"])
 builder.add_conditional_edges("get_filepaths", continue_to_save_file_summaries, ["generate_file_summary"])
+builder.add_conditional_edges("handle_update", continue_to_save_file_summaries, ["generate_file_summary", "generate_package_summary"])
 builder.add_edge("generate_file_summary", "save_file_summaries")
 builder.add_conditional_edges("save_file_summaries", continue_to_save_package_summaries, ["generate_package_summary"])
 builder.add_edge("generate_package_summary", "save_package_summaries")

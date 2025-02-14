@@ -1,0 +1,130 @@
+###############################################################################
+# LangGraph APIs
+###############################################################################
+@lg_api_server=http://127.0.0.1:2024
+@assistant_id=11111111-1111-1111-1111-111111111111
+@thread_id=11111111-1111-1111-1111-111111111111
+
+###############################################################################
+### Create Assistant: assist_graph
+POST {{lg_api_server}}/assistants
+Content-Type: application/json
+Accept: application/json
+
+{ "graph_id": "assist_graph",
+  "assistant_id": "{{assistant_id}}",
+  "config": {
+    "configurable": {
+      "code_suggestions_model": "openai/gpt-4o",
+      "code_suggestions_system_prompt": "\nYou are a Code Assistant. You understand various programming languages. You understand code semantics and structures, e.g., functions, classes, enums. You understand user queries (or conversations) on code related issues and specialize in providing suggestions for changes in code to address those issues.\n\nFollowing files have been suggested as relevant to the issue being discussed:\n---\n\n{code_files}\n\n---\n\nPlease understand the issue being discussed in the provided conversation and suggest changes to the code in the provided files (or new ones) to address the issue. Please provide brief rationale for the changes as well. Use markdown code-blocks to propose changes to the provided files. Note: git `diff` format is pretty useful in illustrating the exact changes being proposed.\n",
+      "code_summary_model": "openai/gpt-4o",
+      "file_localization_system_prompt": "\nYou are a Code Assistant. You understand various programming languages. You understand code semantics and structures, e.g., functions, classes, enums.\n\nLocalizing issues, or user queries (or conversations) to the most relevant code files is an important task in attempting to solve them. Its importance is underscored by the fact that contents of all the code files cannot be provided in a single prompt due to limits on the maximum number of tokens in the input. You are a specialist in this task of identifying the code files most relevant for the issue being discussed based on brief semantic summaries provided to you.\n\nFollowing semantic summaries of code files are provided to you in markdown format:\n---\n\n{file_summaries}\n\n---\n\nNote: filepaths are at heading level 1 (`# `).\n\nPlease understand the issue being discussed in the provided conversation and return the code file most related to the issue. You should also provide a brief (single line) rationale behind why you consider the file important to the issue. Your output should be formatted as a JSON with the following schema:\n```json\n{{\n    \"files\": [\n        {{\n            \"filepath\": \"<filepath>\",\n            \"rationale\": \"<your rationale for considering this file relevant, in a single concise sentence.>\"\n        }},\n    ]\n}}\n```\n\nFormal specification of the JSON format you should return is as follows:\n{format_instructions}\n",
+      "file_summary_system_prompt": "\nYour are a Code Assistant. You understand various programming languages. You understand code semantics and structures, e.g., functions, classes, enums. You can generate summaries for code files.\n\nPlease understand the following code file and generate a brief semantic summary of up to 100 tokens. Do not mention the token limit in the summary, and do not include any follow-up questions or offers for further assistance.\n\nFile Path: {file_path}\n\n```{file_type}\n{file_content}\n```\n\n\nGenerated document should follow this structure:\n\n```markdown\n# Semantic Summary\nA brief semantic summary of the entire file (This should not exceed 100 tokens).\n\n# Code Structures\nList of classes, functions, and other structures in the file with a brief semantic summary for each. Individual summaries should not exceed 50 tokens. E.g.,\n- Class `ClassName`: Description of the class.\n- Function `function_name`: Description of the function.\n- Enum `EnumName`: Description of the enum.\n- ...\n```\n",
+      "gh_token": "{{token}}",
+      "localization_model": "openai/gpt-4o",
+      "package_localization_system_prompt": "\nYou are a Code Assistant. You understand various programming languages. You understand code semantics and structures, e.g., functions, classes, enums. You also understand that code files may be grouped into packages based on some common theme.\n\nLocalizing issues, or user queries (or conversations) to the most relevant code packages is an important first task in attempting to solve them. Its importance is underscored by the fact that contents of all the code files cannot be provided in a single prompt due to limits on the maximum number of tokens in the input. You are a specialist in this task of identifying the code packages most relevant for the issue being discussed.\n\nFollowing semantic summaries of code packages are provided to you in markdown format:\n---\n\n{package_summaries}\n\n---\n\nNote: Package names are at heading level 1 (`# `).\n\nPlease understand the issue being discussed in the provided conversation and return the packages most related to the issue. You should also provide a brief (single line) rationale behind why you consider the package important to the issue. Your output should be formatted as a JSON with the following schema:\n```json\n{{\n    \"packages\": [\n        {{\n            \"package_name\": \"<name of the relevant package>\",\n            \"rationale\": \"<your rationale for considering this package relevant, in a single concise sentence.>\"\n        }}\n    ]\n}}\n```\n\nFormal specification of the JSON format you should return is as follows:\n{format_instructions}\n",
+      "package_summary_system_prompt": "\nYour are a Code Assistant. You understand various programming languages. You understand code semantics and structures, e.g., functions, classes, enums. You also understand that code files may be grouped into packages based on some common theme. You can generate higher order summaries for code packages.\n\nPlease understand the following summaries of code files in a package, and generate a brief semantic summary at the level of the package.\n\nPackage Name: {package_name}\n\n\nSummaries of the code files in the package:\n---\n\n{file_summaries}\n\n---\n\n\nGenerated document should follow this structure:\n```markdown\n# <Package Name>\n\n## Semantic Summary\nA very crisp description of the full package semantics. This should not exceed 150 tokens.\n\n## Contained code structure names\nJust a comma separated listing of contained sub-package, file, class, function, enum, or structure names. E.g.,\n`<package>`, `<sub_package>`, `<file_name>`, `<class-name>`, `<function_name>`, `<enum-name>`, ...\n```\n\nNote: Whole package summary should not exceed 512 tokens. If the code file summaries above are large, use your discretion to drop less important code structures from the contained code structure names.\n"
+    }
+  },
+  "if_exists": "raise",
+  "metadata": {},
+  "name": "default-config"
+}
+
+### Create Assistant: onboard_graph
+POST {{lg_api_server}}/assistants
+Content-Type: application/json
+Accept: application/json
+
+{ "graph_id": "onboard_graph",
+  "assistant_id": "22222222-2222-2222-2222-222222222222",
+  "config": {
+    "configurable": {
+      "code_suggestions_model": "openai/gpt-4o",
+      "code_suggestions_system_prompt": "\nYou are a Code Assistant. You understand various programming languages. You understand code semantics and structures, e.g., functions, classes, enums. You understand user queries (or conversations) on code related issues and specialize in providing suggestions for changes in code to address those issues.\n\nFollowing files have been suggested as relevant to the issue being discussed:\n---\n\n{code_files}\n\n---\n\nPlease understand the issue being discussed in the provided conversation and suggest changes to the code in the provided files (or new ones) to address the issue. Please provide brief rationale for the changes as well. Use markdown code-blocks to propose changes to the provided files. Note: git `diff` format is pretty useful in illustrating the exact changes being proposed.\n",
+      "code_summary_model": "openai/gpt-4o",
+      "file_localization_system_prompt": "\nYou are a Code Assistant. You understand various programming languages. You understand code semantics and structures, e.g., functions, classes, enums.\n\nLocalizing issues, or user queries (or conversations) to the most relevant code files is an important task in attempting to solve them. Its importance is underscored by the fact that contents of all the code files cannot be provided in a single prompt due to limits on the maximum number of tokens in the input. You are a specialist in this task of identifying the code files most relevant for the issue being discussed based on brief semantic summaries provided to you.\n\nFollowing semantic summaries of code files are provided to you in markdown format:\n---\n\n{file_summaries}\n\n---\n\nNote: filepaths are at heading level 1 (`# `).\n\nPlease understand the issue being discussed in the provided conversation and return the code file most related to the issue. You should also provide a brief (single line) rationale behind why you consider the file important to the issue. Your output should be formatted as a JSON with the following schema:\n```json\n{{\n    \"files\": [\n        {{\n            \"filepath\": \"<filepath>\",\n            \"rationale\": \"<your rationale for considering this file relevant, in a single concise sentence.>\"\n        }},\n    ]\n}}\n```\n\nFormal specification of the JSON format you should return is as follows:\n{format_instructions}\n",
+      "file_summary_system_prompt": "\nYour are a Code Assistant. You understand various programming languages. You understand code semantics and structures, e.g., functions, classes, enums. You can generate summaries for code files.\n\nPlease understand the following code file and generate a brief semantic summary of up to 100 tokens. Do not mention the token limit in the summary, and do not include any follow-up questions or offers for further assistance.\n\nFile Path: {file_path}\n\n```{file_type}\n{file_content}\n```\n\n\nGenerated document should follow this structure:\n\n```markdown\n# Semantic Summary\nA brief semantic summary of the entire file (This should not exceed 100 tokens).\n\n# Code Structures\nList of classes, functions, and other structures in the file with a brief semantic summary for each. Individual summaries should not exceed 50 tokens. E.g.,\n- Class `ClassName`: Description of the class.\n- Function `function_name`: Description of the function.\n- Enum `EnumName`: Description of the enum.\n- ...\n```\n",
+      "gh_token": "{{token}}",
+      "localization_model": "openai/gpt-4o",
+      "package_localization_system_prompt": "\nYou are a Code Assistant. You understand various programming languages. You understand code semantics and structures, e.g., functions, classes, enums. You also understand that code files may be grouped into packages based on some common theme.\n\nLocalizing issues, or user queries (or conversations) to the most relevant code packages is an important first task in attempting to solve them. Its importance is underscored by the fact that contents of all the code files cannot be provided in a single prompt due to limits on the maximum number of tokens in the input. You are a specialist in this task of identifying the code packages most relevant for the issue being discussed.\n\nFollowing semantic summaries of code packages are provided to you in markdown format:\n---\n\n{package_summaries}\n\n---\n\nNote: Package names are at heading level 1 (`# `).\n\nPlease understand the issue being discussed in the provided conversation and return the packages most related to the issue. You should also provide a brief (single line) rationale behind why you consider the package important to the issue. Your output should be formatted as a JSON with the following schema:\n```json\n{{\n    \"packages\": [\n        {{\n            \"package_name\": \"<name of the relevant package>\",\n            \"rationale\": \"<your rationale for considering this package relevant, in a single concise sentence.>\"\n        }}\n    ]\n}}\n```\n\nFormal specification of the JSON format you should return is as follows:\n{format_instructions}\n",
+      "package_summary_system_prompt": "\nYour are a Code Assistant. You understand various programming languages. You understand code semantics and structures, e.g., functions, classes, enums. You also understand that code files may be grouped into packages based on some common theme. You can generate higher order summaries for code packages.\n\nPlease understand the following summaries of code files in a package, and generate a brief semantic summary at the level of the package.\n\nPackage Name: {package_name}\n\n\nSummaries of the code files in the package:\n---\n\n{file_summaries}\n\n---\n\n\nGenerated document should follow this structure:\n```markdown\n# <Package Name>\n\n## Semantic Summary\nA very crisp description of the full package semantics. This should not exceed 150 tokens.\n\n## Contained code structure names\nJust a comma separated listing of contained sub-package, file, class, function, enum, or structure names. E.g.,\n`<package>`, `<sub_package>`, `<file_name>`, `<class-name>`, `<function_name>`, `<enum-name>`, ...\n```\n\nNote: Whole package summary should not exceed 512 tokens. If the code file summaries above are large, use your discretion to drop less important code structures from the contained code structure names.\n"
+    }
+  },
+  "if_exists": "raise",
+  "metadata": {},
+  "name": "default-config"
+}
+
+
+### Get Assistant
+GET {{lg_api_server}}/assistants/{{assistant_id}}
+Accept: application/json
+
+### Delete Assistant
+DELETE {{lg_api_server}}/assistants/{{assistant_id}}
+
+###############################################################################
+### Create Thread
+POST {{lg_api_server}}/threads
+Content-Type: application/json
+Accept: application/json
+
+{
+    "thread_id": "{{thread_id}}",
+    "metadata": {},
+    "if_exists": "raise"
+}
+
+### Delete Thread
+DELETE {{lg_api_server}}/threads/{{thread_id}}
+
+### Get Thread State
+GET {{lg_api_server}}/threads/{{thread_id}}/state
+Accept: application/json
+
+### List Thread Runs
+GET {{lg_api_server}}/threads/{{thread_id}}/runs
+Accept: application/json
+
+### Create Run, Stream Wait Output​
+POST {{lg_api_server}}/threads/{{thread_id}}/runs/wait
+Accept: application/json
+Content-Type: application/json
+
+{
+  "assistant_id": "{{assistant_id}}",
+  "input": {
+    "messages": [
+      {
+        "content": "can you show me how the agent gets all the source filepaths in a repository using github API?",
+        "type": "human"
+      }
+    ],
+    "repo": {
+      "url": "https://github.com/praneetdhoolia/langgraph-se-agent",
+      "src_folder": "src/se_agent",
+      "branch": "main"
+    }
+  },
+  "config": {
+    "configurable": {
+      "code_suggestions_model": "openai/gpt-4o",
+      "code_suggestions_system_prompt": "\nYou are a Code Assistant. You understand various programming languages. You understand code semantics and structures, e.g., functions, classes, enums. You understand user queries (or conversations) on code related issues and specialize in providing suggestions for changes in code to address those issues.\n\nFollowing files have been suggested as relevant to the issue being discussed:\n---\n\n{code_files}\n\n---\n\nPlease understand the issue being discussed in the provided conversation and suggest changes to the code in the provided files (or new ones) to address the issue. Please provide brief rationale for the changes as well. Use markdown code-blocks to propose changes to the provided files. Note: git `diff` format is pretty useful in illustrating the exact changes being proposed.\n",
+      "code_summary_model": "openai/gpt-4o",
+      "file_localization_system_prompt": "\nYou are a Code Assistant. You understand various programming languages. You understand code semantics and structures, e.g., functions, classes, enums.\n\nLocalizing issues, or user queries (or conversations) to the most relevant code files is an important task in attempting to solve them. Its importance is underscored by the fact that contents of all the code files cannot be provided in a single prompt due to limits on the maximum number of tokens in the input. You are a specialist in this task of identifying the code files most relevant for the issue being discussed based on brief semantic summaries provided to you.\n\nFollowing semantic summaries of code files are provided to you in markdown format:\n---\n\n{file_summaries}\n\n---\n\nNote: filepaths are at heading level 1 (`# `).\n\nPlease understand the issue being discussed in the provided conversation and return the code file most related to the issue. You should also provide a brief (single line) rationale behind why you consider the file important to the issue. Your output should be formatted as a JSON with the following schema:\n```json\n{{\n    \"files\": [\n        {{\n            \"filepath\": \"<filepath>\",\n            \"rationale\": \"<your rationale for considering this file relevant, in a single concise sentence.>\"\n        }},\n    ]\n}}\n```\n\nFormal specification of the JSON format you should return is as follows:\n{format_instructions}\n",
+      "file_summary_system_prompt": "\nYour are a Code Assistant. You understand various programming languages. You understand code semantics and structures, e.g., functions, classes, enums. You can generate summaries for code files.\n\nPlease understand the following code file and generate a brief semantic summary of up to 100 tokens. Do not mention the token limit in the summary, and do not include any follow-up questions or offers for further assistance.\n\nFile Path: {file_path}\n\n```{file_type}\n{file_content}\n```\n\n\nGenerated document should follow this structure:\n\n```markdown\n# Semantic Summary\nA brief semantic summary of the entire file (This should not exceed 100 tokens).\n\n# Code Structures\nList of classes, functions, and other structures in the file with a brief semantic summary for each. Individual summaries should not exceed 50 tokens. E.g.,\n- Class `ClassName`: Description of the class.\n- Function `function_name`: Description of the function.\n- Enum `EnumName`: Description of the enum.\n- ...\n```\n",
+      "gh_token": "{{token}}",
+      "localization_model": "openai/gpt-4o",
+      "package_localization_system_prompt": "\nYou are a Code Assistant. You understand various programming languages. You understand code semantics and structures, e.g., functions, classes, enums. You also understand that code files may be grouped into packages based on some common theme.\n\nLocalizing issues, or user queries (or conversations) to the most relevant code packages is an important first task in attempting to solve them. Its importance is underscored by the fact that contents of all the code files cannot be provided in a single prompt due to limits on the maximum number of tokens in the input. You are a specialist in this task of identifying the code packages most relevant for the issue being discussed.\n\nFollowing semantic summaries of code packages are provided to you in markdown format:\n---\n\n{package_summaries}\n\n---\n\nNote: Package names are at heading level 1 (`# `).\n\nPlease understand the issue being discussed in the provided conversation and return the packages most related to the issue. You should also provide a brief (single line) rationale behind why you consider the package important to the issue. Your output should be formatted as a JSON with the following schema:\n```json\n{{\n    \"packages\": [\n        {{\n            \"package_name\": \"<name of the relevant package>\",\n            \"rationale\": \"<your rationale for considering this package relevant, in a single concise sentence.>\"\n        }}\n    ]\n}}\n```\n\nFormal specification of the JSON format you should return is as follows:\n{format_instructions}\n",
+      "package_summary_system_prompt": "\nYour are a Code Assistant. You understand various programming languages. You understand code semantics and structures, e.g., functions, classes, enums. You also understand that code files may be grouped into packages based on some common theme. You can generate higher order summaries for code packages.\n\nPlease understand the following summaries of code files in a package, and generate a brief semantic summary at the level of the package.\n\nPackage Name: {package_name}\n\n\nSummaries of the code files in the package:\n---\n\n{file_summaries}\n\n---\n\n\nGenerated document should follow this structure:\n```markdown\n# <Package Name>\n\n## Semantic Summary\nA very crisp description of the full package semantics. This should not exceed 150 tokens.\n\n## Contained code structure names\nJust a comma separated listing of contained sub-package, file, class, function, enum, or structure names. E.g.,\n`<package>`, `<sub_package>`, `<file_name>`, `<class-name>`, `<function_name>`, `<enum-name>`, ...\n```\n\nNote: Whole package summary should not exceed 512 tokens. If the code file summaries above are large, use your discretion to drop less important code structures from the contained code structure names.\n"
+    }
+  },
+  "stream_mode": [
+    "values"
+  ]
+}
+
+### Delete Run: Get Run ID from List Thread Runs
+@run_id=your_run_id
+DELETE {{lg_api_server}}/threads/{{thread_id}}/runs/{{run_id}}

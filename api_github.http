@@ -6,6 +6,6 @@
 
 ### get_file_contents
 GET {{api_server}}/repos/{{owner}}/{{repo}}/contents/{{path}} HTTP/1.1
-Authorization: Bearer {{GH_TOKEN}}
+Authorization: Bearer {{token}}
 Content-Type: application/json
 Accept: application/vnd.github.v3+json

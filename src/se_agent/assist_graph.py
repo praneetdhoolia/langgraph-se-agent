@@ -1,5 +1,3 @@
-import sqlite3
-
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
@@ -17,11 +15,18 @@ from se_agent.state import (
     file_suggestions_format_instuctions,
     package_suggestions_format_instuctions,
 )
-from se_agent.utils import (
-    get_file_content_from_github,
+from se_agent.utils.utils_misc import (
     load_chat_model,
     shift_markdown_headings
 )
+from se_agent.utils.utils_git_api import (
+    get_file_content_from_github
+)
+from se_agent.utils.utils_git_local import (
+    get_file_content_from_local
+)
+from se_agent.store import get_store
+
 
 async def localize_packages(state: State, *, config: RunnableConfig) -> dict:
     """Localize package summaries by fetching existing packages from the database and prompting an LLM.
@@ -47,39 +52,25 @@ async def localize_packages(state: State, *, config: RunnableConfig) -> dict:
     package_name_index = {}
 
     # Connect to database
-    conn = sqlite3.connect("store.db")
+    store = get_store("sqlite", db_path="store.db")
     
     # --- 1) Fetch repository id ---
-    cursor = conn.execute(
-        """SELECT repo_id
-           FROM repositories
-           WHERE url = ? AND src_path = ? AND branch = ?""",
-        (state.repo.url,
-         state.repo.src_folder,
-         state.repo.branch)
-    )
-    row = cursor.fetchone()
-    repo_id = row[0]
+    repo_record = store.get_repo(state.repo.url, state.repo.src_folder, state.repo.branch)
+    if repo_record is None:
+        raise Exception("Repository not onboarded.")
+    repo_id = repo_record.repo_id
+
 
     # --- 2) Fetch package ids, names, and summaries for all packages with repo_id ---
-    cursor = conn.execute(
-        """SELECT package_id, package_name, summary
-           FROM packages
-           WHERE repo_id = ?""",
-        (repo_id,)
-    )
-    rows = cursor.fetchall()
-    conn.close()
-
-    for row in rows:
-        package_id, package_name, summary = row
-        # Build a Package object for quick lookup
-        package_name_index[package_name] = Package(
-            package_id=package_id,
-            name=package_name
+    packages = store.fetch_package_data(repo_id)
+    for pkg in packages:
+        package_name_index[pkg.package_name] = Package(
+            package_id=pkg.package_id,
+            name=pkg.package_name
         )
-        package_summaries.append(summary)
+        package_summaries.append(pkg.summary if pkg.summary else "")
 
+    # --- 3) Use LLM to suggest relevant packages ---
     # Prepare a localization prompt
     template = ChatPromptTemplate.from_messages([
         ("system", configuration.package_localization_system_prompt),
@@ -119,31 +110,20 @@ async def localize_files(state: State, *, config: RunnableConfig) -> dict:
     configuration = Configuration.from_runnable_config(config)
     file_summaries = []
 
-    # Connect to database
-    conn = sqlite3.connect("store.db")
-
+    # Get the store instance
+    store = get_store("sqlite", db_path="store.db")
     # Gather package_ids from the suggested packages
     package_ids = [
         state.package_name_index[pkg.package_name].package_id
         for pkg in state.package_suggestions.packages
     ]
 
-    # --- Fetch file paths and summaries for all files matching those package_ids ---
-    query = """SELECT file_path, summary
-               FROM files
-               WHERE repo_id = ? AND package_id IN ({})""".format(
-        ",".join("?" * len(package_ids))
-    )
-
-    cursor = conn.execute(query, (state.repo_id, *package_ids))
-    rows = cursor.fetchall()
-    conn.close()
-
-    for row in rows:
-        filepath, summary = row
-        # For context, store the summary plus a separate entry with headings
-        file_summaries.append(summary)
-        file_summaries.append(f"# {filepath}\n{shift_markdown_headings(summary, increment=1)}")
+    # --- For each suggested package, fetch file summaries ---
+    for pkg_id in package_ids:
+        summaries = store.get_file_summaries_for_package(state.repo_id, pkg_id)
+        for file_path, summary in summaries:
+            file_summaries.append(summary)
+            file_summaries.append(f"# {file_path}\n{shift_markdown_headings(summary, increment=1)}")
 
     # Prepare an LLM prompt
     template = ChatPromptTemplate.from_messages([
@@ -195,12 +175,18 @@ async def fetch_file_content(state: FilepathState, *, config: RunnableConfig) ->
     """
     configuration = Configuration.from_runnable_config(config)
 
-    file_content = get_file_content_from_github(
-        state.repo.url,
-        state.filepath,
-        configuration.gh_token,
-        state.repo.branch
-    )
+    if state.repo.url.startswith("file://"):
+        # Use repo_dir if available; otherwise derive the local path by stripping "file://"
+        local_repo_dir = state.repo_dir if state.repo_dir else state.repo.url.replace("file://", "")
+        file_content = get_file_content_from_local(local_repo_dir, state.filepath)
+    else:
+        file_content = get_file_content_from_github(
+            state.repo.url,
+            state.filepath,
+            configuration.gh_token,
+            state.repo.branch,
+            state.repo.commit_hash
+        )
 
     return {
         "file_contents": [
@@ -266,10 +252,8 @@ async def cleanup(state: State, *, config: RunnableConfig) -> dict:
         dict: of properties to cleanup from the state.
     """
     return {
-        "package_suggestions": None,
         "package_name_index": None,
-        "file_suggestions": None,
-        "file_contents": "delete",
+        "file_contents": "delete"
     }
 
 

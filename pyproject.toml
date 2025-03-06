@@ -9,9 +9,12 @@ license = { text = "MIT" }
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "flask",
+    "flask-cors",
     "gitpython",
     "langchain",
     "langgraph",
+    "langgraph-sdk",
     "langchain-openai",
     "python-dotenv>=1.0.1"
 ]

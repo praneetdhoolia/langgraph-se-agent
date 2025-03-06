@@ -128,7 +128,11 @@ class Repo(BaseModel):
         examples=["main", "master", "develop"],
         description="Branch of the repository."
     )
-
+    commit_hash: str = Field(
+        default=None,
+        examples=["b9f1a8a", "c1b2a3d"],
+        description="Commit hash to onboard on / or update to."
+    )
 
 class RepoEvent(BaseModel):
     repo: Repo = Field(
@@ -146,18 +150,18 @@ class FilepathState:
     filepath: str
     """Github file path to be processed."""
 
-    repo_event: RepoEvent = Field(
-        default_factory=RepoEvent,
-        description = """
-            Details of the trigger event, e.g., repo-onboard, repo-update.
-            Should be avaailable for onboard_graph processing.
-        """
-    )
-
     repo: Repo = Field(
         default_factory=Repo,
         description = """
             Repository details from GitHub.
+            Should be avaailable for assist_graph processing.
+        """
+    )
+
+    event: Event = Field(
+        default_factory=Event,
+        description = """
+            Details of the trigger event, e.g., repo-onboard, repo-update.
             Should be avaailable for assist_graph processing.
         """
     )
@@ -184,17 +188,42 @@ class FileContent:
     """Content of the file."""
 
 
+@dataclass(kw_only=True)
+class FileSummaryError:
+    filepath: str
+    """Github file path to be processed."""
+
+    error: str
+    """Error message."""
+
+
+@dataclass(kw_only=True)
+class PackageSummaryError:
+    package_id: int
+    """ID of the package for which the summary generation failed."""
+    
+    package_name: str
+    """Name of the package."""
+    
+    error: str
+    """Error message."""
+
+
 # -----------------------------------------------------------------------------
 # Input and Graph Managed State for Repository Event Handling
 # -----------------------------------------------------------------------------
 
 @dataclass(kw_only=True)
 class OnboardInputState:
-    repo_event: RepoEvent = Field(default_factory=RepoEvent, description="Details of the onboarding event.")
+    repo: Repo = Field(default_factory=Repo, description="Repository details from GitHub.")
+
+    event: Event = Field(default_factory=Event, description="Details of the onboarding event.")
 
     def __post_init__(self):
-        if isinstance(self.repo_event, dict):
-            self.repo_event = RepoEvent(**self.repo_event)
+        if isinstance(self.repo, dict):
+            self.repo = Repo(**self.repo)
+        if isinstance(self.event, dict):
+            self.event = Event(**self.event)
 
 
 @dataclass(kw_only=True)
@@ -211,11 +240,17 @@ class OnboardState(OnboardInputState):
     file_summaries: Annotated[list[FileSummary], add_or_delete] = field(default_factory=list)
     """List of file summaries."""
 
+    file_summary_errors: Annotated[list[FileSummaryError], add_or_delete] = field(default_factory=list)
+    """List of file summary errors."""
+
     packages_impacted: set[int] = field(default_factory=set)
     """Set of packages impacted by the event."""
 
     package_summaries: Annotated[list[PackageSummary], add_or_delete] = field(default_factory=list)
     """List of package summaries."""
+
+    package_summary_errors: Annotated[list[PackageSummaryError], add_or_delete] = field(default_factory=list)
+    """List of package summary errors."""
 
 
 # -----------------------------------------------------------------------------
@@ -267,7 +302,7 @@ file_suggestions_format_instuctions = PydanticOutputParser(pydantic_object=FileS
 
 @dataclass(kw_only=True)
 class InputState:
-    messages: Annotated[Sequence[AnyMessage], add_messages]
+    messages: Annotated[Sequence[AnyMessage], add_messages] = field(default_factory=list)
     """Messages track the primary execution state of the agent."""
 
     repo: Repo = Field(default_factory=Repo)

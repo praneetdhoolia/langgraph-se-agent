@@ -2,6 +2,7 @@
 @owner=praneetdhoolia
 @repo=langgraph-se-agent
 @path=src/se_agent
+@integration_server=http://localhost:3000
 
 
 ### get_file_contents
@@ -9,3 +10,7 @@ GET {{api_server}}/repos/{{owner}}/{{repo}}/contents/{{path}} HTTP/1.1
 Authorization: Bearer {{token}}
 Content-Type: application/json
 Accept: application/vnd.github.v3+json
+
+### Onboard: Repo: langgraph-se-agent
+GET {{integration_server}}/repositories HTTP/1.1
+Accept: application/json

@@ -67,6 +67,10 @@ def webhook():
     """
     data = request.json
 
+    # Handle push events
+    if "head_commit" in data and data.get("ref"):
+        return handle_push_event(data)
+
     # Handle issues and issue comments.
     if "issue" in data:
         action = data.get("action")
@@ -79,6 +83,40 @@ def webhook():
     logger.info("Received unsupported webhook event.")
     return jsonify({"status": "ignored", "reason": "Event type not supported"}), 200
 
+def handle_push_event(data):
+    """
+    Handle a push event by computing the delta of file changes and updating agent knowledge.
+    
+    The delta is computed by combining:
+      - Added and modified files (as "modified")
+      - Removed files (as "deleted")
+      - For renamed files, the new filename is considered modified, and the previous filename is considered deleted.
+    """
+    try:
+        repo = get_repo_info(data)
+
+        # Only process pushes to the onboarded target branch.
+        if data.get("ref") != f"refs/heads/{repo['branch']}":
+            msg = f"Push not to onboarded branch: {repo['branch']}; ignoring."
+            logger.info(msg)
+            return jsonify({"status": "ignored", "reason": msg}), 200
+
+        head = data.get("head_commit", {})
+        delta = compute_delta(head, repo)
+
+        event = {
+            "event_type": "repo-update",
+            "meta_data": delta,
+        }
+
+        result = update_agent_knowledge(repo, event)
+        logger.info(f"Push event processed for repo: {repo['url']}")
+        return jsonify({"status": "processed push", "result": result}), 200
+
+    except Exception as e:
+        logger.exception("Error processing push event")
+        return jsonify({"status": "error", "error": str(e)}), 500
+    
 def handle_issue_event(data):
     try:
         repo = get_repo_info(data)
@@ -97,7 +135,81 @@ def handle_issue_event(data):
     except Exception as e:
         logger.exception("Error processing issue creation event")
         return jsonify({"status": "error", "error": str(e)}), 500
+    
+def compute_delta(head_commit, repo):
+    """
+    Compute the delta for a GitHub push event based on the head_commit data.
+    
+    The delta is returned as a dictionary with:
+      - "modified": Files that were added, modified, or renamed (new filenames)
+      - "deleted": Files that were removed or renamed (previous filenames)
+    
+    Only files within the repo's src_folder and ending with '.py' are considered.
+    
+    Args:
+        head_commit (dict): The 'head_commit' payload from the push event.
+        repo (dict): Repository configuration with a 'src_folder' key.
+    
+    Returns:
+        dict: A dictionary with keys "modified" and "deleted".
+    """
+    added_files = head_commit.get("added", [])
+    modified_files = head_commit.get("modified", [])
+    removed_files = head_commit.get("removed", [])
+    renamed_files = head_commit.get("renamed", [])  # may be dicts or strings
 
+    modified = []
+    deleted = []
+
+    def is_valid_file(filepath):
+        return filepath.startswith(repo["src_folder"])
+
+    # Process added and modified files.
+    for f in added_files:
+        if is_valid_file(f):
+            modified.append(f)
+    for f in modified_files:
+        if is_valid_file(f):
+            modified.append(f)
+
+    # Process removed files.
+    for f in removed_files:
+        if is_valid_file(f):
+            deleted.append(f)
+
+    # Process renamed files.
+    for item in renamed_files:
+        if isinstance(item, dict):
+            new_filename = item.get("filename", "")
+            prev_filename = item.get("previous_filename", "")
+            if is_valid_file(new_filename):
+                modified.append(new_filename)
+            if prev_filename and is_valid_file(prev_filename):
+                deleted.append(prev_filename)
+        else:
+            if is_valid_file(item):
+                modified.append(item)
+
+    return {"modified": modified, "deleted": deleted}
+
+@app.route('/repositories', methods=['GET'])
+def get_repositories():
+    """
+    Endpoint to fetch all onboarded repositories.
+    Returns a list of RepoRecord objects.
+    """
+    try:
+        store = get_store("sqlite", db_path="store.db")
+        repos = store.get_all_repos()
+        return jsonify([{
+            "url": repo.url,
+            "src_folder": repo.src_path,
+            "branch": repo.branch
+        } for repo in repos]), 200
+    except Exception as e:
+        logger.exception("Error fetching repositories")
+        return jsonify({"status": "error", "error": str(e)}), 500
+        
 def get_repo_info(data):
     repo_url = data.get("repository", {}).get("html_url")
     if not repo_url:

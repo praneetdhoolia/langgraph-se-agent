@@ -57,6 +57,25 @@ class SQLiteStore(StoreInterface):
 
     # Repository Operations
 
+    def get_all_repos(self) -> List[RepoRecord]:
+        """
+        Fetch all repository records from the database.
+        :return: A list of RepoRecord objects.
+        """
+        c = self.connection.cursor()
+        c.execute("SELECT * FROM repositories")
+        rows = c.fetchall()
+        return [
+            RepoRecord(
+                repo_id=row["repo_id"],
+                url=row["url"],
+                src_path=row["src_path"],
+                branch=row["branch"],
+                created_at=row["created_at"],
+                last_modified_at=row["last_modified_at"]
+            )
+            for row in rows]
+
     def get_repo(self, url: str, src_path: Optional[str] = None, branch: Optional[str] = None) -> Optional[RepoRecord]:
         query = "SELECT * FROM repositories WHERE url = ?"
         params = [url]

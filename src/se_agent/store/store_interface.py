@@ -49,6 +49,14 @@ class StoreInterface(ABC):
 
     # Repository Operations
     @abstractmethod
+    def get_all_repos(self) -> List[RepoRecord]:
+        """
+        Fetch all repository records.
+        :return: A list of RepoRecord objects.
+        """
+        pass
+    
+    @abstractmethod
     def get_repo(self, url: str, src_path: str, branch: str) -> Optional[RepoRecord]:
         """
         Fetch a repository record by url, source path, and branch.

@@ -1,0 +1,15 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {   "name": "Github Webhook Integration",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/src/se_agent/integration/github_webhook.py",
+            "args": [],
+            "console": "integratedTerminal",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            }
+        }
+    ]
+}

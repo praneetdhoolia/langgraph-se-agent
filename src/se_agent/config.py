@@ -1,7 +1,7 @@
 from __future__ import annotations
 import os
 from dataclasses import dataclass, field, fields
-from typing import Annotated, Optional, Type, TypeVar
+from typing import Annotated, Literal, Optional, Type, TypeVar
 
 from langchain_core.runnables import RunnableConfig, ensure_config
 
@@ -65,9 +65,29 @@ class Configuration:
         },
     )
 
+    pull_request_review_system_prompt: str = field (
+        default=prompts.PULL_REQUEST_REVIEW_SYSTEM_PROMPT,
+        metadata={"description": "System prompt for pull request review task."},
+    )
+
+    pull_request_review_model: Annotated[
+        Literal["openai/gpt-4o"],
+        {"__template_metadata__": {"kind": "llm"}}
+    ] = field(
+        default="openai/gpt-4o",
+        metadata={
+            "description": "Language model to use for pull request review task. Should be in the form: provider/model-name."
+        },
+    )
+
     gh_token: str = field(
         default=os.getenv('GH_TOKEN'),
         metadata={"description": "GitHub token for the se-agent to use."},
+    )
+
+    test_framework: str = field(
+        default="pytest",
+        metadata={"description": "Test framework used in the repository."},
     )
 
     @classmethod

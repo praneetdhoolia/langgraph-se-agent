@@ -329,3 +329,8 @@ class State(InputState):
 
     file_contents: Annotated[list[FileContent], add_or_delete] = field(default_factory=list)
     """List of file contents."""
+
+@dataclass(kw_only=True)
+class PRState(InputState):
+    pr_event: dict[str, Any] = field(default_factory=dict)
+    """Details of the PR event."""

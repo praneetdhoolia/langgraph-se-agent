@@ -13,6 +13,7 @@ from se_agent.store import (
     RepoRecord
 )
 from se_agent.utils.utils_git_api import (
+    get_issue_comments,
     post_issue_comment
 )
 
@@ -74,14 +75,57 @@ def webhook():
     # Handle issues and issue comments.
     if "issue" in data:
         action = data.get("action")
-        # Only process newly opened issues.
-        if action != "opened":
-            logger.info(f"Issue event with action '{action}' ignored.")
-            return jsonify({"status": "ignored", "reason": f"Action '{action}' not supported"}), 200
-        return handle_issue_event(data)
+        if "comment" in data:
+            # Only process new comments.
+            if action != "created":
+                logger.info(f"Issue comment event with action '{action}' ignored.")
+                return jsonify({"status": "ignored", "reason": f"Action '{action}' not supported"}), 200
+            return handle_issue_comment_event(data)
+        else:
+            # Only process newly opened issues.
+            if action != "opened":
+                logger.info(f"Issue event with action '{action}' ignored.")
+                return jsonify({"status": "ignored", "reason": f"Action '{action}' not supported"}), 200
+            return handle_issue_event(data)
 
     logger.info("Received unsupported webhook event.")
     return jsonify({"status": "ignored", "reason": "Event type not supported"}), 200
+
+def handle_issue_comment_event(data):
+    try:
+        issue = data.get("issue")
+        comment = data["comment"]
+        # ignore comments made by se-agent itself (use lowercase for case-insensitive check)
+        if comment.get("user", {}).get("login", "").lower() == "se-agent":
+            logger.info("Ignoring self-comment from se-agent.")
+            return jsonify({"status": "ignored", "reason": "Self-comment ignored"}), 200
+
+        comment_body = comment.get("body", "")
+        
+        if ignore_if_not_mentioned(comment_body, "issue comment"):
+            return jsonify({"status": "ignored", "reason": "Agent not mentioned"}), 200
+        
+        if not comment_body:
+            logger.info("Comment is empty. No point in processing")
+            return jsonify({"status": "ignored", "reason": "Empty comment"}), 200
+
+        repo = get_repo_info(data)
+        token = get_github_token()
+        
+        issue_comments = get_issue_comments(repo['url'], issue.get("number"), gh_token=token)
+        messages = xform_issue_comments_to_messages(issue_comments)
+        
+        issue_title = issue.get("title", "")
+        issue_description = issue.get("body", "")
+        issue_text = f"{issue_title}\n{issue_description}"
+        messages.insert(0, {"role": "user", "content": issue_text})
+
+        result = apply_agent_and_respond(messages, repo, issue.get("number"), token)
+        logger.info(f"Issue comment processed for repo: {repo['url']}")
+        return jsonify({"status": "processed issue", "result": result}), 200
+    except Exception as e:
+        logger.exception("Error processing issue comment event")
+        return jsonify({"status": "error", "error": str(e)}), 500
 
 def handle_push_event(data):
     """
@@ -244,6 +288,20 @@ def ignore_if_not_mentioned(text, context):
         logger.info(f"Agent not mentioned in {context}; ignoring event.")
         return True
     return False
+
+def xform_issue_comments_to_messages(issue_comments: list) -> list:
+    """
+    Transforms issue comments to messages for the agent.
+    """
+
+    # If the comment['user']['login'] is 'se-agent', then the role is set to 'assistant' otherwise 'user'.
+    return [
+        {
+            "role": "assistant" if comment['user']['login'].lower() == 'se-agent' else "user",
+            "content": comment['body']
+        }
+        for comment in issue_comments
+    ]
 
 def extract_agent_response(result):
     """

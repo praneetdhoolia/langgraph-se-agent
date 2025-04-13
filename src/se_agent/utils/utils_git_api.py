@@ -169,3 +169,24 @@ def post_issue_comment(repo_url: str, issue_number: int, comment_body: str, gh_t
     response = requests.post(comment_url, json={"body": comment_body}, headers=headers)
     response.raise_for_status()
     return response.json()
+
+def get_issue_comments(repo_url: str, issue_number: int, gh_token: str) -> dict:
+    """
+    Retrieves comments from a GitHub issue.
+
+    Args:
+        repo_url (str): The GitHub repository URL.
+        issue_number (int): The issue number.
+        gh_token (str): GitHub personal access token for authorization.
+
+    Returns:
+        dict: The JSON response containing the comments.
+    """
+    base_url, owner, repo = split_github_url(repo_url)
+    api_url = get_github_api_endpoint(base_url)
+    headers = create_auth_headers(gh_token)
+    comments_url = f"{api_url}/repos/{owner}/{repo}/issues/{issue_number}/comments"
+
+    response = requests.get(comments_url, headers=headers)
+    response.raise_for_status()
+    return response.json()

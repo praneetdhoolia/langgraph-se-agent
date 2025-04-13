@@ -1,4 +1,5 @@
 import logging
+import json
 import os
 
 from flask import Flask, request, jsonify
@@ -7,6 +8,7 @@ from flask_cors import CORS
 from se_agent.integration.langgraph_runtime import (
     apply_agent,
     update_agent_knowledge,
+    review_pr
 )
 from se_agent.store import (
     get_store,
@@ -14,7 +16,8 @@ from se_agent.store import (
 )
 from se_agent.utils.utils_git_api import (
     get_issue_comments,
-    post_issue_comment
+    post_issue_comment,
+    post_pr_review
 )
 
 app = Flask(__name__)
@@ -71,6 +74,10 @@ def webhook():
     # Handle push events
     if "head_commit" in data and data.get("ref"):
         return handle_push_event(data)
+    
+    # Handle pull request events (including review assignments)
+    if "pull_request" in data:
+        return handle_pull_request_event(data)
 
     # Handle issues and issue comments.
     if "issue" in data:
@@ -96,7 +103,7 @@ def handle_issue_comment_event(data):
         issue = data.get("issue")
         comment = data["comment"]
         # ignore comments made by se-agent itself (use lowercase for case-insensitive check)
-        if comment.get("user", {}).get("login", "").lower() == "se-agent":
+        if comment.get("user", {}).get("login", "").lower() == SE_AGENT_USER_ID:
             logger.info("Ignoring self-comment from se-agent.")
             return jsonify({"status": "ignored", "reason": "Self-comment ignored"}), 200
 
@@ -253,7 +260,56 @@ def get_repositories():
     except Exception as e:
         logger.exception("Error fetching repositories")
         return jsonify({"status": "error", "error": str(e)}), 500
+
+def handle_pull_request_event(data):
+    action = data.get("action")
+    # Process only review assignment events.
+    if action != "review_requested":
+        logger.info(f"Pull request event with action '{action}' ignored.")
+        return jsonify({"status": "ignored", "reason": f"Action '{action}' not supported"}), 200
+
+    # Check if the event is assigned to our agent (se-agent) ignoring case.
+    if "requested_reviewer" in data:
+        reviewer = data.get("requested_reviewer")
+        reviewer_login = reviewer.get("login", "").lower() if reviewer else ""
+        if reviewer_login != SE_AGENT_USER_ID:
+            logger.info("PR review assignment not for se-agent; ignoring.")
+            return jsonify({"status": "ignored", "reason": "Not assigned to se-agent"}), 200
+    elif "requested_reviewers" in data:
+        reviewers = data.get("requested_reviewers", [])
+        if not any(r.get("login", "").lower() == SE_AGENT_USER_ID for r in reviewers):
+            logger.info("PR review assignment not for se-agent; ignoring.")
+            return jsonify({"status": "ignored", "reason": "Not assigned to se-agent"}), 200
+    else:
+        logger.info("No reviewer information found; ignoring event.")
+        return jsonify({"status": "ignored", "reason": "No reviewer information"}), 200
+
+    # Log the entire event data.
+    logger.info("PR review assignment event for se-agent received. Event Data:\n%s", json.dumps(data, indent=2))
+    
+    # Extract repository details.
+    repo = get_repo_info(data)
+    
+    # Invoke the agent's review_pr capability by passing the whole PR event.
+    try:
+        result = review_pr(data, repo)
+        logger.info("Agent review PR result: %s", result)
         
+        # Extract the agent's response and post it as a PR review.
+        review_message = extract_agent_response(result)
+        if review_message:
+            token = get_github_token()
+            pr_number = data.get("pull_request", {}).get("number")
+            review_post_response = post_pr_review(repo['url'], pr_number, review_message, token)
+            logger.info("Posted PR review response: %s", review_post_response)
+        else:
+            logger.error("No agent review message found to post.")
+        
+        return jsonify({"status": "processed", "result": result}), 200
+    except Exception as e:
+        logger.exception("Error processing PR review assignment event")
+        return jsonify({"status": "error", "error": str(e)}), 500
+   
 def get_repo_info(data):
     repo_url = data.get("repository", {}).get("html_url")
     if not repo_url:
@@ -294,10 +350,10 @@ def xform_issue_comments_to_messages(issue_comments: list) -> list:
     Transforms issue comments to messages for the agent.
     """
 
-    # If the comment['user']['login'] is 'se-agent', then the role is set to 'assistant' otherwise 'user'.
+    # If the comment['user']['login'] is SE_AGENT_USER_ID, then the role is set to 'assistant' otherwise 'user'.
     return [
         {
-            "role": "assistant" if comment['user']['login'].lower() == 'se-agent' else "user",
+            "role": "assistant" if comment['user']['login'].lower() == SE_AGENT_USER_ID else "user",
             "content": comment['body']
         }
         for comment in issue_comments

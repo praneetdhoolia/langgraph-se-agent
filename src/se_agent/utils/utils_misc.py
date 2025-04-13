@@ -106,3 +106,11 @@ def shift_markdown_headings(content: str, increment: int = 1) -> str:
     #   (.*)$       -> the rest of the line (capturing group 2)
     # The MULTILINE flag (^ matches start of line rather than start of the entire string)
     return re.sub(r'^(#+)\s+(.*)$', replacer, content, flags=re.MULTILINE)
+
+def is_context_limit_error(error: Exception) -> bool:
+    message = str(error).lower()
+    return (
+        "context length" in message
+        or "token limit" in message
+        or "input is too long" in message
+    )

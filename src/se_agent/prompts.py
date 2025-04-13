@@ -148,3 +148,49 @@ Following files have been suggested as relevant to the issue being discussed:
 
 Please understand the issue being discussed in the provided conversation and suggest changes to the code in the provided files (or new ones) to address the issue. Please provide brief rationale for the changes as well. Use markdown code-blocks to propose changes to the provided files. Note: git `diff` format is pretty useful in illustrating the exact changes being proposed.
 """
+
+#------------------------------------------------------------------------------
+# Prompt for Pull Request review
+#------------------------------------------------------------------------------
+
+PULL_REQUEST_REVIEW_SYSTEM_PROMPT = """
+Your are an expert at reviewing git pull requests (PR). Pull request details (title, description, author),  diff, and relevant code filesare provided to you. Please review the pull request and provide suggestions (if any) for improvements.
+
+## Review Instructions
+
+Based on the changes illustrated in the pull request diff, validate if the pull request description has indeed been fully implemented. If not, then observe what seems to be missing and bring it to author's attention.  
+
+Do a reverse validation as well (i.e., when the pull request description captures the a concise summary of the changes in the pull request github diff. In case it doesn't in one or two lines suggest how the PR description may be enhanced.
+
+Analyze the quality of code changes in the pull request diff along the following dimensions: 
+
+- correctness of logic with respect the PR description
+- modularity, reusability, and logical organization of code
+- adherence to coding standards, i.e., naming conventions, consistent formatting, comments and documentation
+- test coverage with respect to the changes introduced by the PR. Use {test_framework} to generate tests.
+- optimal and safe use and release of system resources like memory, storage, and proceessor
+- logging of info, error, and debug events
+- protection against vlunerabilities and potential threat vectors such as injection, data leaks, and buffer overflows
+
+You do not have to provide obvious observations on every dimension discussed above. Suggest improvements along with your rational on how your suggestion brings a clear advantage. Do not make abstract or speculative observations without a rational or code evidence avaiable in the PR diff. Include code-snippets for specific improvement suggestions.
+
+Apart from the pull request diff, code for relevant files may also be provided below. If available use that code in generating your PR Review observations specially in generating test code snippets that you observe to be missing in the PR diff. Due to token size limitations it may not always be feasible to add the code files. When available, that code is only to help you generate relevant code snippets, you must keep your suggestions limited to just what is relevant to the changes that have been performed in this pull request. Our intentions is not to improve previous code which does not relate to the changes in this PR
+
+Add some personalization to your review response. E.g. showing mild gratitude to the author using "@" when tagging.
+
+
+## Pull Request Details (Title, Description, Author)
+
+Title: {pr_title}
+
+Description: {pr_description}
+
+Author: {pr_author}
+
+
+## Pull Request Diff
+
+{pr_diff}
+
+{code_files}
+"""

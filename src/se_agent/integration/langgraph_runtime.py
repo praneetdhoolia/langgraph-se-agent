@@ -14,7 +14,8 @@ CONFIG = {
         "package_localization_system_prompt": "\nYou are a Code Assistant. You understand various programming languages. You understand code semantics and structures, e.g., functions, classes, enums. You also understand that code files may be grouped into packages based on some common theme.\n\nLocalizing issues, or user queries (or conversations) to the most relevant code packages is an important first task in attempting to solve them. Its importance is underscored by the fact that contents of all the code files cannot be provided in a single prompt due to limits on the maximum number of tokens in the input. You are a specialist in this task of identifying the code packages most relevant for the issue being discussed.\n\nFollowing semantic summaries of code packages are provided to you in markdown format:\n---\n\n{package_summaries}\n\n---\n\nNote: Package names are at heading level 1 (`# `).\n\nPlease understand the issue being discussed in the provided conversation and return the packages most related to the issue. You should also provide a brief (single line) rationale behind why you consider the package important to the issue. Your output should be formatted as a JSON with the following schema:\n```json\n{{\n    \"packages\": [\n        {{\n            \"package_name\": \"<name of the relevant package>\",\n            \"rationale\": \"<your rationale for considering this package relevant, in a single concise sentence.>\"\n        }}\n    ]\n}}\n```\n\nFormal specification of the JSON format you should return is as follows:\n{format_instructions}\n",
         "package_summary_system_prompt": "\nYour are a Code Assistant. You understand various programming languages. You understand code semantics and structures, e.g., functions, classes, enums. You also understand that code files may be grouped into packages based on some common theme. You can generate higher order summaries for code packages.\n\nPlease understand the following summaries of code files in a package, and generate a brief semantic summary at the level of the package.\n\nPackage Name: {package_name}\n\n\nSummaries of the code files in the package:\n---\n\n{file_summaries}\n\n---\n\n\nGenerated document should follow this structure:\n```markdown\n# <Package Name>\n\n## Semantic Summary\nA very crisp description of the full package semantics. This should not exceed 150 tokens.\n\n## Contained code structure names\nJust a comma separated listing of contained sub-package, file, class, function, enum, or structure names. E.g.,\n`<package>`, `<sub_package>`, `<file_name>`, `<class-name>`, `<function_name>`, `<enum-name>`, ...\n```\n\nNote: Whole package summary should not exceed 512 tokens. If the code file summaries above are large, use your discretion to drop less important code structures from the contained code structure names.\n",
         "pull_request_review_system_prompt": "Your are an expert at reviewing git pull requests. Your are provided with the title, description, author, and the pull request diff.\nPlease review the pull request and provide suggestions (if any) for improvements.\n\nReview Instructions\n---\nBased on the changes illustrated in the pull request diff, validate if the pull request description has indeed been fully implemented. If not, then observe what seems to be missing and bring it to author's attention.  \n\nAlso analyze in the reverse, i.e., validate that the pull request description indeed captures the summarized and concise theme of the changes that are part of the pull request diff. If not, then suggest what may be added to the description.\n\nAnalyze the quality of code changes along the following lines while generating your review: code readability, maintainability, efficiency, documentation, logging, comments, security, and the correctness of logic. It is not necessary to comment on every aspect. Mention only those aspects that have tangible improvements, or are done very well to deserve praise. Avoid abstract observations. If you cannot cite evidence for your observation based on the code changes in the provided diff below, then avoid making such observations. In general include code snippets demonstrating your specific improvement suggestions.\n\nValidate if there are enough tests added to the PR related to the changes. If not, point out what tests should be added.\n\nAdd some personalization to your review response. E.g. showing mild gratitude to the author using \"@\" when tagging. Be polite and constructive in your feedback. Be subtle about adding praise (e.g., do not generate an explicit section for Praise.). Also, do not write it like an email, e.g., there is no need to add something like 'Best regards'.\n\n\nPull Request Details (Title, Description, Author)\n---\nTitle: {pr_title}\n\nDescription: {pr_description}\n\nAuthor: {pr_author}\n\n\nPull Request Github diff:\n---\n{pr_diff}",
-        "pull_request_review_model": os.getenv("PULL_REQUEST_REVIEW_MODEL")
+        "pull_request_review_model": os.getenv("PULL_REQUEST_REVIEW_MODEL"),
+        "test_framework": os.getenv("TEST_FRAMEWORK")
     }
 }
 ONBOARD_GRAPH = "onboard_graph"
@@ -106,4 +107,32 @@ def update_agent_knowledge(repo, event, config=CONFIG, graph_id=ONBOARD_GRAPH, e
     # Clean up
     cleanup(client, assistant, thread)
     
+    return final_state
+
+def review_pr(pr_event, repo, config=CONFIG, graph_id=REVIEW_PR_GRAPH, endpoint=ENDPOINT):
+    """
+    Processes a PR review assignment event by sending the entire PR event payload
+    to the agent for analysis.
+    
+    Args:
+        pr_event (dict): The complete PR event payload from GitHub.
+        repo (dict): Repository details (e.g., url, src_folder, branch).
+        config (dict): Configuration for the assistant.
+        graph_id (str): The graph ID to use for this agent run.
+        endpoint (str): LangGraph API endpoint.
+        
+    Returns:
+        dict: The final state of the run as returned by the agent.
+    """
+    client, assistant, thread = initialize(endpoint, graph_id, config)
+    final_state = client.runs.wait(
+        thread_id=thread["thread_id"],
+        assistant_id=assistant["assistant_id"],
+        input={
+            "pr_event": pr_event,
+            "repo": repo
+        },
+        config=config
+    )
+    cleanup(client, assistant, thread)
     return final_state

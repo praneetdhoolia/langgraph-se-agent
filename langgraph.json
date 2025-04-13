@@ -5,8 +5,8 @@
     "dependencies": ["."],
     "graphs": {
         "onboard_graph": "./src/se_agent/onboard_graph.py:graph",
-        "assist_graph": "./src/se_agent/assist_graph.py:graph"
+        "assist_graph": "./src/se_agent/assist_graph.py:graph",
+        "review_pr_graph": "./src/se_agent/review_pr_graph.py:graph"
     },
     "env": ".env"
 }
-  

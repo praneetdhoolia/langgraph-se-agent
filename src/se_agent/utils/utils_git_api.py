@@ -147,7 +147,6 @@ def get_file_content_from_github(
     file_content = base64.b64decode(file_data["content"]).decode("utf-8")
     return file_content
 
-
 def post_issue_comment(repo_url: str, issue_number: int, comment_body: str, gh_token: str) -> dict:
     """
     Posts a comment to a GitHub issue.
@@ -190,3 +189,99 @@ def get_issue_comments(repo_url: str, issue_number: int, gh_token: str) -> dict:
     response = requests.get(comments_url, headers=headers)
     response.raise_for_status()
     return response.json()
+
+def get_pr_diff(repo_url: str, pr_number: int, gh_token: str) -> str:
+    """
+    Fetches the raw diff for a pull request using the GitHub API.
+    This method leverages the API endpoint and sets the Accept header to retrieve the diff,
+    which is more reliable with token-based authentication on enterprise instances.
+    
+    Args:
+        repo_url (str): The GitHub repository URL (e.g., "https://github.my-enterprise.com/owner/repo").
+        pr_number (int): The pull request number.
+        gh_token (str): GitHub personal access token for authorization.
+    
+    Returns:
+        str: The raw diff of the pull request.
+    """
+    # Parse the repository URL into base_url, owner, and repo.
+    base_url, owner, repo = split_github_url(repo_url)
+    # Construct the API endpoint URL.
+    api_url = get_github_api_endpoint(base_url)
+    pr_api_url = f"{api_url}/repos/{owner}/{repo}/pulls/{pr_number}"
+    
+    # Build headers including the authorization and diff Accept header.
+    headers = create_auth_headers(gh_token)
+    headers["Accept"] = "application/vnd.github.v3.diff"
+    
+    response = requests.get(pr_api_url, headers=headers)
+    response.raise_for_status()
+    return response.text
+
+
+def get_issue_body(repo_url: str, issue_number: int, gh_token: str) -> str:
+    """
+    Fetches the body of an issue using the GitHub API.
+
+    Args:
+        repo_url (str): The GitHub repository URL.
+        issue_number (int): The issue number.
+        gh_token (str): GitHub personal access token for authorization.
+
+    Returns:
+        str: The body of the issue (or an empty string if not found).
+    """
+    base_url, owner, repo = split_github_url(repo_url)
+    api_url = get_github_api_endpoint(base_url)
+    headers = create_auth_headers(gh_token)
+    issue_url = f"{api_url}/repos/{owner}/{repo}/issues/{issue_number}"
+    response = requests.get(issue_url, headers=headers)
+    response.raise_for_status()
+    data = response.json()
+    return data.get("body", "")
+
+def post_pr_review(repo_url: str, pr_number: int, review_body: str, gh_token: str, event: str = "COMMENT") -> dict:
+    """
+    Posts a review on a pull request using the GitHub API.
+
+    Args:
+        repo_url (str): The GitHub repository URL (e.g., "https://github.com/owner/repo").
+        pr_number (int): The pull request number.
+        review_body (str): The content of the review.
+        gh_token (str): GitHub personal access token for authorization.
+        event (str, optional): The review event type. Options include "APPROVE", "COMMENT", or "REQUEST_CHANGES". Defaults to "COMMENT".
+
+    Returns:
+        dict: The JSON response from the GitHub API.
+    """
+    base_url, owner, repo = split_github_url(repo_url)
+    api_url = get_github_api_endpoint(base_url)
+    headers = create_auth_headers(gh_token)
+    review_url = f"{api_url}/repos/{owner}/{repo}/pulls/{pr_number}/reviews"
+    payload = {"body": review_body, "event": event}
+    response = requests.post(review_url, json=payload, headers=headers)
+    response.raise_for_status()
+    return response.json()
+
+def get_pr_files(repo_url: str, pr_number: int, gh_token: str) -> list[dict]:
+    """
+    Fetches the list of files changed in a pull request using the GitHub API.
+
+    Args:
+        repo_url (str): The GitHub repository URL.
+        pr_number (int): The pull request number.
+        gh_token (str): GitHub personal access token for authorization.
+
+    Returns:
+        list[dict]: A list of dictionaries containing file paths and their statuses.
+    """
+    base_url, owner, repo = split_github_url(repo_url)
+    api_url = get_github_api_endpoint(base_url)
+    headers = create_auth_headers(gh_token)
+    pr_files_url = f"{api_url}/repos/{owner}/{repo}/pulls/{pr_number}/files"
+    
+    response = requests.get(pr_files_url, headers=headers)
+    response.raise_for_status()
+    
+    files = response.json()
+    return [{"filename": file["filename"], "status": file["status"]} for file in files]

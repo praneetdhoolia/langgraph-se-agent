@@ -11,6 +11,17 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 Accept: application/vnd.github.v3+json
 
-### Onboard: Repo: langgraph-se-agent
+### Get Repositories
 GET {{integration_server}}/repositories HTTP/1.1
 Accept: application/json
+
+### Onboard: Repo: langgraph-se-agent
+POST {{integration_server}}/onboard HTTP/1.1
+Content-Type: application/json
+Accept: application/json
+
+{
+    "repo_url": "https://github.com/praneetdhoolia/langgraph-se-agent",
+    "src_folder": "src/se_agent",
+    "branch": "main"
+}
